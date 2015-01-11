@@ -44,10 +44,10 @@ impl Drop for SecStr {
 }
 
 // Constant time comparison
-impl Equiv<String> for SecStr {
-    fn equiv(&self, other: &String) -> bool {
+impl PartialEq for SecStr {
+    fn eq(&self, other: &SecStr) -> bool {
         let us = self.content.as_bytes();
-        let them = other.as_bytes();
+        let them = other.content.as_bytes();
         if us.len() != them.len() {
             return false;
         }
@@ -59,16 +59,10 @@ impl Equiv<String> for SecStr {
     }
 }
 
-impl PartialEq for SecStr {
-    fn eq(&self, other: &SecStr) -> bool {
-        self.equiv(&other.content)
-    }
-}
-
 // Make sure sensitive information is not logged accidentally
 impl fmt::Show for SecStr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("***SECRET***").map_err(|_| { fmt::WriteError })
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
     }
 }
 

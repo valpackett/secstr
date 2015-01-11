@@ -1,4 +1,4 @@
 [root]
-name = "secure-string-rs"
+name = "secstr"
 version = "0.0.0"
 
