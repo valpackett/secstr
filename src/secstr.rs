@@ -7,16 +7,17 @@ use libc::funcs::posix88::mman;
 /// 
 /// - Automatic zeroing in `Drop`  
 /// - Constant time comparison in `Equiv` and `PartialEq`  
-/// - Always outputting `***SECRET***` to prevent logging in `Show`  
+/// - Always outputting `***SECRET***` to prevent logging in `fmt::Debug` and `fmt::Display`  
 /// - Automatic `mlock` to protect against leaking into swap  
 pub struct SecStr {
     content: String
 }
 
 impl SecStr {
+    #[inline(never)]
     pub fn zero_out(&mut self) {
         unsafe {
-            std::ptr::zero_memory(self.content.as_ptr() as *mut libc::c_void, self.content.len());
+            std::ptr::write_bytes(self.content.as_ptr() as *mut libc::c_void, 0, self.content.len());
         }
     }
 
@@ -32,7 +33,7 @@ impl SecStr {
     }
 
     pub fn unsecure<'r>(&'r self) -> &'r str {
-        self.content.as_slice()
+        &self.content
     }
 }
 
@@ -45,6 +46,7 @@ impl Drop for SecStr {
 
 // Constant time comparison
 impl PartialEq for SecStr {
+    #[inline(never)]
     fn eq(&self, other: &SecStr) -> bool {
         let us = self.content.as_bytes();
         let them = other.content.as_bytes();
@@ -52,7 +54,7 @@ impl PartialEq for SecStr {
             return false;
         }
         let mut result = 0;
-        for i in range(0, us.len()) {
+        for i in 0..us.len() {
             result |= us[i] ^ them[i];
         }
         result == 0
@@ -60,7 +62,13 @@ impl PartialEq for SecStr {
 }
 
 // Make sure sensitive information is not logged accidentally
-impl fmt::Show for SecStr {
+impl fmt::Debug for SecStr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+
+impl fmt::Display for SecStr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("***SECRET***").map_err(|_| { fmt::Error })
     }
@@ -88,11 +96,9 @@ mod tests {
 
     #[test]
     fn test_comparison() {
-        assert_eq!(SecStr::new_from_slice("hello"), SecStr::new_from_slice("hello"));
-        assert!( SecStr::new_from_slice("hello") != SecStr::new_from_slice("yolo"));
-        assert!( SecStr::new_from_slice("hello") != SecStr::new_from_slice("olleh"));
-        assert!( SecStr::new_from_slice("hello").equiv(&"hello".to_string()));
-        assert!(!SecStr::new_from_slice("hello").equiv(&"olleh".to_string()));
+        assert_eq!(SecStr::new_from_slice("hello"),  SecStr::new_from_slice("hello"));
+        assert!(  SecStr::new_from_slice("hello") != SecStr::new_from_slice("yolo"));
+        assert!(  SecStr::new_from_slice("hello") != SecStr::new_from_slice("olleh"));
     }
 
     #[test]
