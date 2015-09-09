@@ -3,7 +3,6 @@ extern crate libc;
 use std::fmt;
 use std::borrow::Borrow;
 use std::borrow::BorrowMut;
-use libc::funcs::posix88::mman;
 
 /// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:  
 /// 
@@ -24,17 +23,15 @@ impl SecStr {
     }
 
     pub fn new(cont: Vec<u8>) -> SecStr {
-        unsafe {
-            mman::mlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
-        }
+        memlock::mlock(&cont);
         SecStr { content: cont }
     }
 
-    pub fn unsecure<'r>(&'r self) -> &'r [u8] {
+    pub fn unsecure(&self) -> &[u8] {
         self.borrow()
     }
 
-    pub fn unsecure_mut<'r>(&'r mut self) -> &'r mut [u8] {
+    pub fn unsecure_mut(&mut self) -> &mut [u8] {
         self.borrow_mut()
     }
 }
@@ -63,9 +60,7 @@ impl BorrowMut<[u8]> for SecStr {
 impl Drop for SecStr {
     fn drop(&mut self) {
         self.zero_out();
-        unsafe {
-            mman::munlock(self.content.as_ptr() as *const libc::c_void, self.content.len() as libc::size_t);
-        }
+        memlock::munlock(&self.content);
     }
 }
 
@@ -96,6 +91,33 @@ impl fmt::Debug for SecStr {
 impl fmt::Display for SecStr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+
+#[cfg(unix)]
+mod memlock {
+    extern crate libc;
+    use self::libc::funcs::posix88::mman;
+
+    pub fn mlock(cont: &Vec<u8>) {
+        unsafe {
+            mman::mlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
+        }
+    }
+
+    pub fn munlock(cont: &Vec<u8>) {
+        unsafe {
+            mman::munlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+mod memlock {
+    fn mlock(cont: &Vec<u8>) {
+    }
+
+    fn munlock(cont: &Vec<u8>) {
     }
 }
 
