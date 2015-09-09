@@ -10,29 +10,35 @@ use std::borrow::BorrowMut;
 /// - Constant time comparison in `PartialEq`  
 /// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`  
 /// - Automatic `mlock` to protect against leaking into swap  
+/// 
+/// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.  
+/// Use `SecStr::new` if you have a `Vec<u8>`.
 pub struct SecStr {
     content: Vec<u8>
 }
 
 impl SecStr {
-    #[inline(never)]
-    pub fn zero_out(&mut self) {
-        unsafe {
-            std::ptr::write_bytes(self.content.as_ptr() as *mut libc::c_void, 0, self.content.len());
-        }
-    }
-
     pub fn new(cont: Vec<u8>) -> SecStr {
         memlock::mlock(&cont);
         SecStr { content: cont }
     }
 
+    /// Borrow the contents of the string.
     pub fn unsecure(&self) -> &[u8] {
         self.borrow()
     }
 
+    /// Mutably borrow the contents of the string.
     pub fn unsecure_mut(&mut self) -> &mut [u8] {
         self.borrow_mut()
+    }
+
+    #[inline(never)]
+    /// Overwrite the string with zeros. This is automatically called in the destructor.
+    pub fn zero_out(&mut self) {
+        unsafe {
+            std::ptr::write_bytes(self.content.as_ptr() as *mut libc::c_void, 0, self.content.len());
+        }
     }
 }
 

@@ -8,7 +8,7 @@ license = "Unlicense"
 readme = "README.md"
 homepage = "https://github.com/myfreeweb/secstr"
 repository = "https://github.com/myfreeweb/secstr"
-documentation = "https://myfreeweb.github.io/autodocs/secstr"
+documentation = "https://myfreeweb.github.io/autodocs/secstr/secstr"
 
 [lib]
 name = "secstr"
