@@ -1,0 +1,3 @@
+PROJECT_NAME=secstr
+DOCS_REPO=myfreeweb/autodocs.git
+SSH_KEY_TRAVIS_ID=227ae24e1cfc
