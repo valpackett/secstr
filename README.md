@@ -1,9 +1,16 @@
 # secstr [![unlicense](https://img.shields.io/badge/un-license-green.svg?style=flat)](http://unlicense.org)
 
-A [Rust] library that implements a data type suitable for storing sensitive information such as passwords and private keys in memory.
+A [Rust] library that implements a data type (wrapper around `Vec<u8>`) suitable for storing sensitive information such as passwords and private keys in memory.
 Inspired by Haskell [securemem] and .NET [SecureString].
 
-[Rust]: http://www.rust-lang.org
+Featuring:
+
+- constant time comparison
+- automatically zeroing out in the destructor
+- `mlock` protection if possible
+- formatting as `***SECRET***` to prevent leaking into logs
+
+[Rust]: https://www.rust-lang.org
 [securemem]: https://hackage.haskell.org/package/securemem
 [SecureString]: http://msdn.microsoft.com/en-us/library/system.security.securestring%28v=vs.110%29.aspx
 
@@ -13,25 +20,25 @@ Inspired by Haskell [securemem] and .NET [SecureString].
 extern crate secstr;
 use secstr::*;
 
-let pw1 = SecStr::new("correct horse battery staple".to_string());
-let pw2 = SecStr::new_from_slice("correct horse battery staple");
+let pw = SecStr::from("correct horse battery staple");
 
 // Compared in constant time:
 // (Obviously, you should store hashes in real apps, not plaintext passwords)
-let are_pws_equal = pw1 == pw2; // true
+let are_pws_equal = pw == SecStr::from("correct horse battery staple".to_string()); // true
 
-// With normal strings:
-let are_pws_equal_2 = pw1.equiv(&"correct horse battery staple".to_string());
-
-// Formatting, printing
-let text_to_print = format!("{}", SecStr::new_from_slice("hello")); // ***SECRET***
+// Formatting, printing without leaking secrets into logs
+let text_to_print = format!("{}", SecStr::from("hello")); // "***SECRET***"
 
 // Clearing memory
 // THIS IS DONE AUTOMATICALLY IN THE DESTRUCTOR
-let mut my_sec = SecStr::new_from_slice("hello");
+// (but you can force it)
+let mut my_sec = SecStr::from("hello");
 my_sec.zero_out();
-assert_eq!(my_sec.content, "\x00\x00\x00\x00\x00".to_string());
+assert_eq!(my_sec.unsecure(), b"\x00\x00\x00\x00\x00");
 ```
+
+Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.  
+Use `SecStr::new` if you have a `Vec<u8>`.
 
 ## Contributing
 
