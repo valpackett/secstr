@@ -4,4 +4,4 @@ rust:
   - stable
   - beta
   - nightly
-after_success: curl https://raw.githubusercontent.com/myfreeweb/autodocs/master/travis-doc-upload.sh | sh
+after_success: cargo doc && curl https://raw.githubusercontent.com/myfreeweb/autodocs/master/travis-doc-upload.sh | sh
