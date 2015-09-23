@@ -1,17 +1,20 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
+#![cfg_attr(feature = "benchmark", feature(test))]
 extern crate libc;
+#[cfg(feature = "benchmark")]
+extern crate test;
 use std::fmt;
 use std::borrow::Borrow;
 use std::borrow::BorrowMut;
 
-/// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:  
-/// 
-/// - Automatic zeroing in `Drop`  
-/// - Constant time comparison in `PartialEq`  
-/// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`  
-/// - Automatic `mlock` to protect against leaking into swap  
-/// 
-/// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.  
+/// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:
+///
+/// - Automatic zeroing in `Drop`
+/// - Constant time comparison in `PartialEq`
+/// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`
+/// - Automatic `mlock` to protect against leaking into swap
+///
+/// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.
 /// Use `SecStr::new` if you have a `Vec<u8>`.
 pub struct SecStr {
     content: Vec<u8>
@@ -76,12 +79,18 @@ impl PartialEq for SecStr {
     fn eq(&self, other: &SecStr) -> bool {
         let ref us = self.content;
         let ref them = other.content;
-        if us.len() != them.len() {
-            return false;
-        }
-        let mut result = 0;
-        for i in 0..us.len() {
-            result |= us[i] ^ them[i];
+        let us_len = us.len();
+        let them_len = them.len();
+        let mut result = (us_len != them_len) as u8;
+        for i in 0..them_len {
+            if i < us_len {
+                result |= us[i] ^ them[i];
+            } else {
+                //alternative them[i] ^ them[i] (us_len may be 0)
+                //witch is SLOWER! then us[i] ^ them[i]
+                //benched: 10 ^ them[i] is closest in speed
+                result |= 10 ^ them[i];
+            }
         }
         result == 0
     }
@@ -130,6 +139,8 @@ mod memlock {
 #[cfg(test)]
 mod tests {
     use super::SecStr;
+    #[cfg(feature = "benchmark")]
+    use test::{Bencher, black_box};
 
     #[test]
     fn test_basic() {
@@ -155,6 +166,43 @@ mod tests {
     #[test]
     fn test_show() {
         assert_eq!(format!("{}", SecStr::from("hello")), "***SECRET***".to_string());
+    }
+
+    #[test]
+    fn test_neq_same_start() {
+        let secret = SecStr::from("txt");
+        let new_secret = SecStr::from("txttxt");
+        assert_eq!( secret == new_secret, false)
+    }
+
+    #[cfg(feature = "benchmark")]
+    #[bench]
+    fn bench_eq_same_len(b: &mut Bencher) {
+        let secret = black_box(SecStr::from("hello more longe test needed here"));
+        let new_secret = black_box(SecStr::from("hello more longe test needed here"));
+        b.iter(|| {
+            secret == new_secret
+        });
+    }
+
+    #[cfg(feature = "benchmark")]
+    #[bench]
+    fn bench_not_eq_same_len(b: &mut Bencher) {
+        let secret = black_box(SecStr::from("hello more longe test needed here"));
+        let new_secret = black_box(SecStr::from("herro more longe test needed here"));
+        b.iter(|| {
+            secret == new_secret
+        });
+    }
+
+    #[cfg(feature = "benchmark")]
+    #[bench]
+    fn bench_different_len(b: &mut Bencher) {
+        let secret = black_box(SecStr::from("hello"));
+        let new_secret = black_box(SecStr::from("hello more longe test needed here"));
+        b.iter(|| {
+            secret == new_secret
+        });
     }
 
 }
