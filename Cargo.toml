@@ -13,5 +13,9 @@ documentation = "https://myfreeweb.github.io/autodocs/secstr/secstr"
 [lib]
 name = "secstr"
 
+[features]
+#optional benchmarks using nightly/unstable Bencher
+benchmark = []
+
 [dependencies]
 libc = "*"
