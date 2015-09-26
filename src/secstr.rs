@@ -7,7 +7,7 @@ use std::borrow::BorrowMut;
 /// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:  
 /// 
 /// - Automatic zeroing in `Drop`  
-/// - Constant time comparison in `PartialEq`  
+/// - Constant time comparison in `PartialEq` (does not short circuit on the first different character; but terminates instantly if strings have different length)  
 /// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`  
 /// - Automatic `mlock` to protect against leaking into swap  
 /// 
