@@ -13,5 +13,10 @@ documentation = "https://myfreeweb.github.io/autodocs/secstr/secstr"
 [lib]
 name = "secstr"
 
+[features]
+cbor-serialize = ["rustc-serialize", "cbor"]
+
 [dependencies]
-libc = "*"
+libc = "0"
+cbor = { version = "0", optional = true }
+rustc-serialize = { version = "0", optional = true }

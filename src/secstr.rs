@@ -1,8 +1,11 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
 extern crate libc;
+#[cfg(feature = "cbor-serialize")] extern crate cbor;
+#[cfg(feature = "cbor-serialize")] extern crate rustc_serialize;
 use std::fmt;
 use std::borrow::Borrow;
 use std::borrow::BorrowMut;
+#[cfg(feature = "cbor-serialize")] use rustc_serialize::{Decoder, Encoder, Decodable, Encodable};
 
 /// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:  
 /// 
@@ -97,6 +100,21 @@ impl fmt::Debug for SecStr {
 impl fmt::Display for SecStr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+
+#[cfg(feature = "cbor-serialize")]
+impl Decodable for SecStr {
+    fn decode<D: Decoder>(d: &mut D) -> Result<SecStr, D::Error> {
+        let cbor::CborBytes(content) = try!(cbor::CborBytes::decode(d));
+        Ok(SecStr::new(content))
+    }
+}
+
+#[cfg(feature = "cbor-serialize")]
+impl Encodable for SecStr {
+    fn encode<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
+        cbor::CborBytes(self.content.clone()).encode(e)
     }
 }
 
