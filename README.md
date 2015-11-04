@@ -9,10 +9,12 @@ Featuring:
 - automatically zeroing out in the destructor
 - `mlock` protection if possible
 - formatting as `***SECRET***` to prevent leaking into logs
+- (optionally) serializable into [CBOR] as a byte string
 
 [Rust]: https://www.rust-lang.org
 [securemem]: https://hackage.haskell.org/package/securemem
 [SecureString]: http://msdn.microsoft.com/en-us/library/system.security.securestring%28v=vs.110%29.aspx
+[CBOR]: https://github.com/BurntSushi/rust-cbor
 
 ## Usage
 
