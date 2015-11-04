@@ -121,17 +121,16 @@ impl Encodable for SecStr {
 #[cfg(unix)]
 mod memlock {
     extern crate libc;
-    use self::libc::funcs::posix88::mman;
 
     pub fn mlock(cont: &Vec<u8>) {
         unsafe {
-            mman::mlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
+            libc::mlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
         }
     }
 
     pub fn munlock(cont: &Vec<u8>) {
         unsafe {
-            mman::munlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
+            libc::munlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
         }
     }
 }
