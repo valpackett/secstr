@@ -16,6 +16,7 @@ use std::borrow::BorrowMut;
 /// 
 /// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.  
 /// Use `SecStr::new` if you have a `Vec<u8>`.
+#[derive(Clone)]
 pub struct SecStr {
     content: Vec<u8>
 }
