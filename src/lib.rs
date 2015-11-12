@@ -2,10 +2,46 @@
 extern crate libc;
 #[cfg(feature = "cbor-serialize")] extern crate cbor;
 #[cfg(feature = "cbor-serialize")] extern crate rustc_serialize;
+#[cfg(feature = "libsodium-sys")] extern crate libsodium_sys as sodium;
 use std::fmt;
 use std::borrow::Borrow;
 use std::borrow::BorrowMut;
 #[cfg(feature = "cbor-serialize")] use rustc_serialize::{Decoder, Encoder, Decodable, Encodable};
+
+#[cfg(feature = "libsodium-sys")]
+unsafe fn memzero(pnt: *mut u8, len: libc::size_t) {
+    sodium::sodium_memzero(pnt, len);
+}
+
+#[inline(never)]
+#[cfg(not(feature = "libsodium-sys"))]
+unsafe fn memzero(pnt: *mut u8, len: libc::size_t) {
+    std::ptr::write_bytes(pnt as *mut libc::c_void, 0, len);
+}
+
+#[cfg(feature = "libsodium-sys")]
+fn memcmp(us: &[u8], them: &[u8]) -> bool {
+    if us.len() != them.len() {
+        return false;
+    }
+    unsafe {
+        sodium::sodium_memcmp(us.as_ptr(), them.as_ptr(), them.len()) == 0
+    }
+}
+
+#[inline(never)]
+#[cfg(not(feature = "libsodium-sys"))]
+fn memcmp(us: &[u8], them: &[u8]) -> bool {
+    if us.len() != them.len() {
+        return false;
+    }
+    let mut result = 0;
+    for i in 0..us.len() {
+        result |= us[i] ^ them[i];
+    }
+    result == 0
+}
+
 
 /// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:  
 /// 
@@ -37,11 +73,10 @@ impl SecStr {
         self.borrow_mut()
     }
 
-    #[inline(never)]
     /// Overwrite the string with zeros. This is automatically called in the destructor.
     pub fn zero_out(&mut self) {
         unsafe {
-            std::ptr::write_bytes(self.content.as_ptr() as *mut libc::c_void, 0, self.content.len());
+            memzero(self.content.as_ptr() as *mut u8, self.content.len());
         }
     }
 }
@@ -76,18 +111,8 @@ impl Drop for SecStr {
 
 // Constant time comparison
 impl PartialEq for SecStr {
-    #[inline(never)]
     fn eq(&self, other: &SecStr) -> bool {
-        let ref us = self.content;
-        let ref them = other.content;
-        if us.len() != them.len() {
-            return false;
-        }
-        let mut result = 0;
-        for i in 0..us.len() {
-            result |= us[i] ^ them[i];
-        }
-        result == 0
+        memcmp(&self.content, &other.content)
     }
 }
 
@@ -168,6 +193,8 @@ mod tests {
         assert_eq!(SecStr::from("hello"),  SecStr::from("hello"));
         assert!(  SecStr::from("hello") != SecStr::from("yolo"));
         assert!(  SecStr::from("hello") != SecStr::from("olleh"));
+        assert!(  SecStr::from("hello") != SecStr::from("helloworld"));
+        assert!(  SecStr::from("hello") != SecStr::from(""));
     }
 
     #[test]

@@ -9,11 +9,14 @@ Featuring:
 - automatically zeroing out in the destructor
 - `mlock` protection if possible
 - formatting as `***SECRET***` to prevent leaking into logs
+- (optionally) using libsodium (through [sodiumoxide]'s [libsodium-sys]) for the zeroing and comparison
 - (optionally) serializable into [CBOR] as a byte string
 
 [Rust]: https://www.rust-lang.org
 [securemem]: https://hackage.haskell.org/package/securemem
 [SecureString]: http://msdn.microsoft.com/en-us/library/system.security.securestring%28v=vs.110%29.aspx
+[sodiumoxide]: https://crates.io/crates/sodiumoxide
+[libsodium-sys]: https://crates.io/crates/libsodium-sys
 [CBOR]: https://github.com/BurntSushi/rust-cbor
 
 ## Usage
