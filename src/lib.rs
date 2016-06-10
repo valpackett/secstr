@@ -212,7 +212,7 @@ impl<T> Encodable for SecVec<T> where T: Sized + Copy {
 
 #[cfg(test)]
 mod tests {
-    use super::SecStr;
+    use super::{SecStr, SecVec};
     
     #[test]
     fn test_basic() {
@@ -241,5 +241,17 @@ mod tests {
     fn test_show() {
         assert_eq!(format!("{}", SecStr::from("hello")), "***SECRET***".to_string());
     }
-
+    
+    #[test]
+    fn test_comparison_zero_out_mb() {
+        let mbstring1 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
+        let mbstring2 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
+        let mbstring3 = SecVec::from(vec!['!','🦄',' ','o','l','l','a','H']);
+        assert!(mbstring1 == mbstring2);
+        assert!(mbstring1 != mbstring3);
+        
+        let mut mbstring = mbstring1.clone();
+        mbstring.zero_out();
+        assert_eq!(mbstring.unsecure(), &['\0','\0','\0','\0','\0','\0','\0','\0']);
+    }
 }
