@@ -16,7 +16,9 @@ unsafe fn memzero(pnt: *mut u8, len: libc::size_t) {
 #[inline(never)]
 #[cfg(not(feature = "libsodium-sys"))]
 unsafe fn memzero(pnt: *mut u8, len: libc::size_t) {
-    std::ptr::write_bytes(pnt as *mut libc::c_void, 0, len);
+    for i in 0 .. len {
+        std::ptr::write_volatile(pnt.offset(i as isize), 0);
+    }
 }
 
 #[cfg(feature = "libsodium-sys")]
