@@ -295,7 +295,7 @@ impl<T> fmt::Display for SecBox<T> where T: Sized + Copy {
 
 #[cfg(test)]
 mod tests {
-    use super::{SecStr, SecVec};
+    use super::{SecBox, SecStr, SecVec};
     
     #[test]
     fn test_basic() {
@@ -336,5 +336,32 @@ mod tests {
         let mut mbstring = mbstring1.clone();
         mbstring.zero_out();
         assert_eq!(mbstring.unsecure(), &['\0','\0','\0','\0','\0','\0','\0','\0']);
+    }
+    
+    const PRIVATE_KEY_1: [u8; 32] = [
+        0xb0, 0x3b, 0x34, 0xc3, 0x3a, 0x1c, 0x44, 0xf2,
+        0x25, 0xb6, 0x62, 0xd2, 0xbf, 0x48, 0x59, 0xb8,
+        0x13, 0x54, 0x11, 0xfa, 0x7b, 0x03, 0x86, 0xd4,
+        0x5f, 0xb7, 0x5d, 0xc5, 0xb9, 0x1b, 0x44, 0x66];
+    
+    const PRIVATE_KEY_2: [u8; 32] = [
+        0xc8, 0x06, 0x43, 0x9d, 0xc9, 0xd2, 0xc4, 0x76,
+        0xff, 0xed, 0x8f, 0x25, 0x80, 0xc0, 0x88, 0x8d,
+        0x58, 0xab, 0x40, 0x6b, 0xf7, 0xae, 0x36, 0x98,
+        0x87, 0x90, 0x21, 0xb9, 0x6b, 0xb4, 0xbf, 0x59];
+    
+    #[test]
+    fn test_secbox() {
+        let key_1 = SecBox::new(Box::new(PRIVATE_KEY_1));
+        let key_2 = SecBox::new(Box::new(PRIVATE_KEY_2));
+        let key_3 = SecBox::new(Box::new(PRIVATE_KEY_1));
+        assert!(key_1 == key_1);
+        assert!(key_1 != key_2);
+        assert!(key_2 != key_3);
+        assert!(key_1 == key_3);
+        
+        let mut final_key = key_1.clone();
+        final_key.zero_out();
+        assert_eq!(final_key.unsecure(), &[0; 32]);
     }
 }
