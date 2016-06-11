@@ -13,6 +13,20 @@ fn size_of<T: Sized>(slice: &[T]) -> usize {
     slice.len() * std::mem::size_of::<T>()
 }
 
+/**
+ * Create a slice reference from the given box reference
+ */
+fn box_as_slice<T: Sized>(reference: &Box<T>) -> &[T] {
+    unsafe { std::slice::from_raw_parts(reference as &T, 1) }
+}
+
+/**
+ * Create a slice reference from the given box reference
+ */
+fn box_as_slice_mut<T: Sized + Copy>(reference: &mut Box<T>) -> &mut [T] {
+    unsafe { std::slice::from_raw_parts_mut(reference as &mut T, 1) }
+}
+
 
 
 #[cfg(feature = "libsodium-sys")]
@@ -96,10 +110,10 @@ mod memlock {
 
 #[cfg(not(unix))]
 mod memlock {
-    fn mlock<T: Sized>(cont: &[T]) {
+    pub fn mlock<T: Sized>(cont: &[T]) {
     }
 
-    fn munlock<T: Sized>(cont: &[T]) {
+    pub fn munlock<T: Sized>(cont: &[T]) {
     }
 }
 
@@ -205,6 +219,75 @@ impl<T> Decodable for SecVec<T> where T: Sized + Copy {
 impl<T> Encodable for SecVec<T> where T: Sized + Copy {
     fn encode<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
         cbor::CborBytes(self.content.clone()).encode(e)
+    }
+}
+
+
+
+
+#[derive(Clone, Eq)]
+pub struct SecBox<T> where T: Sized + Copy {
+    content: Box<T>
+}
+
+impl<T> SecBox<T> where T: Sized + Copy {
+    pub fn new(cont: Box<T>) -> Self {
+        memlock::mlock(box_as_slice(&cont));
+        SecBox { content: cont }
+    }
+
+    /// Borrow the contents of the string.
+    pub fn unsecure(&self) -> &T {
+        &self.content
+    }
+
+    /// Mutably borrow the contents of the string.
+    pub fn unsecure_mut(&mut self) -> &mut T {
+        &mut self.content
+    }
+
+    /// Overwrite the string with zeros. This is automatically called in the destructor.
+    pub fn zero_out(&mut self) {
+        mem::zero(box_as_slice_mut(&mut self.content));
+    }
+}
+
+// Borrowing
+impl<T> Borrow<T> for SecBox<T> where T: Sized + Copy {
+    fn borrow(&self) -> &T {
+        &self.content
+    }
+}
+impl<T> BorrowMut<T> for SecBox<T> where T: Sized + Copy {
+    fn borrow_mut(&mut self) -> &mut T {
+        &mut self.content
+    }
+}
+
+// Overwrite memory with zeros when we're done
+impl<T> Drop for SecBox<T> where T: Sized + Copy {
+    fn drop(&mut self) {
+        self.zero_out();
+        memlock::munlock(box_as_slice_mut(&mut self.content));
+    }
+}
+
+// Constant time comparison
+impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
+    fn eq(&self, other: &SecBox<T>) -> bool {
+        mem::cmp(box_as_slice(&self.content), box_as_slice(&other.content))
+    }
+}
+
+// Make sure sensitive information is not logged accidentally
+impl<T> fmt::Debug for SecBox<T> where T: Sized + Copy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+impl<T> fmt::Display for SecBox<T> where T: Sized + Copy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
     }
 }
 
