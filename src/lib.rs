@@ -33,6 +33,7 @@ fn box_as_slice_mut<T: Sized + Copy>(reference: &mut Box<T>) -> &mut [T] {
 #[cfg(feature = "libsodium-sys")]
 mod mem {
     extern crate libsodium_sys as sodium;
+    use std;
     use ::size_of;
 
     pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
@@ -49,6 +50,31 @@ mod mem {
         unsafe {
             sodium::sodium_memcmp(us.as_ptr() as *const u8, them.as_ptr() as *const u8, size_of(them)) == 0
         }
+    }
+    
+    pub fn hash<T: Sized + Copy, H>(slice: &[T], state: &mut H) where H: std::hash::Hasher {
+        // Hash the private data
+        let mut hash = [0u8; sodium::crypto_hash_BYTES];
+        unsafe {
+            assert_eq!(sodium::crypto_hash(&mut hash, slice.as_ptr() as *const u8, size_of(slice) as u64), 0);
+        };
+        
+        // Hash again with the current internal state of the outer hasher added as "salt" (will include a per-thread random value for the default SipHasher)
+        let mut round2 = Vec::new();
+        unsafe {
+            let salt = std::slice::from_raw_parts(state as *const H as *const u8, std::mem::size_of::<H>());
+            round2.reserve_exact(hash.len() + salt.len());
+            round2.extend_from_slice(&hash);
+            round2.extend_from_slice(salt);
+        };
+        
+        let mut hash2 = [0u8; sodium::crypto_hash_BYTES];
+        unsafe {
+            assert_eq!(sodium::crypto_hash(&mut hash2, round2.as_ptr(), round2.len() as u64), 0);
+        };
+        
+        // Use this final value as state
+        state.write(&hash2 as &[u8]);
     }
 }
 
@@ -231,6 +257,13 @@ impl<'de> Deserialize<'de> for SecVec<u8> {
     }
 }
 
+#[cfg(feature = "libsodium-sys")]
+impl<T> std::hash::Hash for SecVec<T> where T: Sized + Copy {
+    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+        mem::hash(&self.content, state);
+    }
+}
+
 #[cfg(feature = "serde")]
 impl Serialize for SecVec<u8> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
@@ -305,6 +338,13 @@ impl<T> fmt::Display for SecBox<T> where T: Sized + Copy {
     }
 }
 
+#[cfg(feature = "libsodium-sys")]
+impl<T> std::hash::Hash for SecBox<T> where T: Sized + Copy {
+    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+        mem::hash(box_as_slice(&self.content), state);
+    }
+}
+
 
 
 #[cfg(test)]
@@ -336,7 +376,20 @@ mod tests {
 
     #[test]
     fn test_show() {
-        assert_eq!(format!("{}", SecStr::from("hello")), "***SECRET***".to_string());
+        assert_eq!(format!("{:?}", SecStr::from("hello")), "***SECRET***".to_string());
+        assert_eq!(format!("{}",   SecStr::from("hello")), "***SECRET***".to_string());
+    }
+    
+    #[cfg(feature = "libsodium-sys")]
+    #[test]
+    fn test_hashing() {
+        use std::hash::*;
+        
+        let value = SecStr::from("hello");
+        
+        let mut hasher = SipHasher::new(); // Variant of SipHasher that does not use random values
+        value.hash(&mut hasher);
+        assert_eq!(hasher.finish(), 12960579610752219549);
     }
 
     #[test]
