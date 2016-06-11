@@ -1,46 +1,126 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
-extern crate libc;
 #[cfg(feature = "cbor-serialize")] extern crate cbor;
 #[cfg(feature = "cbor-serialize")] extern crate rustc_serialize;
-#[cfg(feature = "libsodium-sys")] extern crate libsodium_sys as sodium;
 use std::fmt;
-use std::borrow::Borrow;
-use std::borrow::BorrowMut;
+use std::borrow::{Borrow, BorrowMut};
 #[cfg(feature = "cbor-serialize")] use rustc_serialize::{Decoder, Encoder, Decodable, Encodable};
 
+
+/**
+ * Obtain the number of bytes stored in the given byte slice
+ */
+fn size_of<T: Sized>(slice: &[T]) -> usize {
+    slice.len() * std::mem::size_of::<T>()
+}
+
+/**
+ * Create a slice reference from the given box reference
+ */
+fn box_as_slice<T: Sized>(reference: &Box<T>) -> &[T] {
+    unsafe { std::slice::from_raw_parts(reference as &T, 1) }
+}
+
+/**
+ * Create a slice reference from the given box reference
+ */
+fn box_as_slice_mut<T: Sized + Copy>(reference: &mut Box<T>) -> &mut [T] {
+    unsafe { std::slice::from_raw_parts_mut(reference as &mut T, 1) }
+}
+
+
+
 #[cfg(feature = "libsodium-sys")]
-unsafe fn memzero(pnt: *mut u8, len: libc::size_t) {
-    sodium::sodium_memzero(pnt, len);
+mod mem {
+    extern crate libsodium_sys as sodium;
+    use ::size_of;
+    
+    pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
+        unsafe {
+            sodium::sodium_memzero(slice.as_ptr() as *mut u8, size_of(slice));
+        }
+    }
+    
+    pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
+        if us.len() != them.len() {
+            return false;
+        }
+        
+        unsafe {
+            sodium::sodium_memcmp(us.as_ptr() as *const u8, them.as_ptr() as *const u8, size_of(them)) == 0
+        }
+    }
 }
 
-#[inline(never)]
 #[cfg(not(feature = "libsodium-sys"))]
-unsafe fn memzero(pnt: *mut u8, len: libc::size_t) {
-    std::ptr::write_bytes(pnt as *mut libc::c_void, 0, len);
+mod mem {
+    use std;
+    
+    use ::size_of;
+    
+    #[inline(never)]
+    pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
+        let ptr = slice.as_mut_ptr() as *mut u8;
+        for i in 0 .. size_of(slice) {
+            unsafe {
+                std::ptr::write_volatile(ptr.offset(i as isize), 0);
+            }
+        }
+    }
+    
+    #[inline(never)]
+    pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
+        if us.len() != them.len() {
+            return false;
+        }
+        
+        let mut result: u8 = 0;
+        
+        let ptr_us   = us.as_ptr()   as *mut u8;
+        let ptr_them = them.as_ptr() as *mut u8;
+        for i in 0 .. size_of(us) {
+            unsafe {
+                result |= *(ptr_us.offset(i as isize)) ^ *(ptr_them.offset(i as isize));
+            }
+        }
+        
+        result == 0
+    }
 }
 
-#[cfg(feature = "libsodium-sys")]
-fn memcmp(us: &[u8], them: &[u8]) -> bool {
-    if us.len() != them.len() {
-        return false;
+
+
+#[cfg(unix)]
+mod memlock {
+    extern crate libc;
+    
+    use ::size_of;
+    
+    pub fn mlock<T: Sized>(cont: &[T]) {
+        unsafe {
+            libc::mlock(cont.as_ptr() as *const libc::c_void, size_of(cont));
+        }
     }
-    unsafe {
-        sodium::sodium_memcmp(us.as_ptr(), them.as_ptr(), them.len()) == 0
+    
+    pub fn munlock<T: Sized>(cont: &[T]) {
+        unsafe {
+            libc::munlock(cont.as_ptr() as *const libc::c_void, size_of(cont));
+        }
     }
 }
 
-#[inline(never)]
-#[cfg(not(feature = "libsodium-sys"))]
-fn memcmp(us: &[u8], them: &[u8]) -> bool {
-    if us.len() != them.len() {
-        return false;
+#[cfg(not(unix))]
+mod memlock {
+    pub fn mlock<T: Sized>(cont: &[T]) {
     }
-    let mut result = 0;
-    for i in 0..us.len() {
-        result |= us[i] ^ them[i];
+
+    pub fn munlock<T: Sized>(cont: &[T]) {
     }
-    result == 0
 }
+
+
+
+/// Type alias for a vector that stores just bytes
+pub type SecStr = SecVec<u8>;
 
 
 /// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:  
@@ -52,57 +132,55 @@ fn memcmp(us: &[u8], them: &[u8]) -> bool {
 /// 
 /// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.  
 /// Use `SecStr::new` if you have a `Vec<u8>`.
-#[derive(Clone)]
-pub struct SecStr {
-    content: Vec<u8>
+#[derive(Clone, Eq)]
+pub struct SecVec<T> where T: Sized + Copy {
+    content: Vec<T>
 }
 
-impl SecStr {
-    pub fn new(cont: Vec<u8>) -> SecStr {
+impl<T> SecVec<T> where T: Sized + Copy {
+    pub fn new(cont: Vec<T>) -> Self {
         memlock::mlock(&cont);
-        SecStr { content: cont }
+        SecVec { content: cont }
     }
 
     /// Borrow the contents of the string.
-    pub fn unsecure(&self) -> &[u8] {
+    pub fn unsecure(&self) -> &[T] {
         self.borrow()
     }
 
     /// Mutably borrow the contents of the string.
-    pub fn unsecure_mut(&mut self) -> &mut [u8] {
+    pub fn unsecure_mut(&mut self) -> &mut [T] {
         self.borrow_mut()
     }
 
     /// Overwrite the string with zeros. This is automatically called in the destructor.
     pub fn zero_out(&mut self) {
-        unsafe {
-            memzero(self.content.as_ptr() as *mut u8, self.content.len());
-        }
+        mem::zero(&mut self.content);
     }
 }
 
 // Creation
-impl<T> From<T> for SecStr where T: Into<Vec<u8>> {
-    fn from(s: T) -> SecStr {
-        SecStr::new(s.into())
+impl<T, U> From<U> for SecVec<T> where U: Into<Vec<T>>, T: Sized + Copy {
+    fn from(s: U) -> SecVec<T> {
+        SecVec::new(s.into())
     }
 }
 
 // Borrowing
-impl Borrow<[u8]> for SecStr {
-    fn borrow(&self) -> &[u8] {
+impl<T> Borrow<[T]> for SecVec<T> where T: Sized + Copy {
+    fn borrow(&self) -> &[T] {
         self.content.borrow()
     }
 }
 
-impl BorrowMut<[u8]> for SecStr {
-    fn borrow_mut(&mut self) -> &mut [u8] {
+impl<T> BorrowMut<[T]> for SecVec<T> where T: Sized + Copy {
+    fn borrow_mut(&mut self) -> &mut [T] {
         self.content.borrow_mut()
     }
 }
 
 // Overwrite memory with zeros when we're done
-impl Drop for SecStr {
+impl<T> Drop for SecVec<T> where T: Sized + Copy {
     fn drop(&mut self) {
         self.zero_out();
         memlock::munlock(&self.content);
@@ -110,84 +188,129 @@ impl Drop for SecStr {
 }
 
 // Constant time comparison
-impl PartialEq for SecStr {
-    fn eq(&self, other: &SecStr) -> bool {
-        memcmp(&self.content, &other.content)
+impl<T> PartialEq for SecVec<T> where T: Sized + Copy {
+    fn eq(&self, other: &SecVec<T>) -> bool {
+        mem::cmp(&self.content, &other.content)
     }
 }
 
 // Make sure sensitive information is not logged accidentally
-impl fmt::Debug for SecStr {
+impl<T> fmt::Debug for SecVec<T> where T: Sized + Copy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("***SECRET***").map_err(|_| { fmt::Error })
     }
 }
 
-impl fmt::Display for SecStr {
+impl<T> fmt::Display for SecVec<T> where T: Sized + Copy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("***SECRET***").map_err(|_| { fmt::Error })
     }
 }
 
 #[cfg(feature = "cbor-serialize")]
-impl Decodable for SecStr {
+impl<T> Decodable for SecVec<T> where T: Sized + Copy {
     fn decode<D: Decoder>(d: &mut D) -> Result<SecStr, D::Error> {
         let cbor::CborBytes(content) = try!(cbor::CborBytes::decode(d));
-        Ok(SecStr::new(content))
+        Ok(SecVec::<T>::new(content))
     }
 }
 
 #[cfg(feature = "cbor-serialize")]
-impl Encodable for SecStr {
+impl<T> Encodable for SecVec<T> where T: Sized + Copy {
     fn encode<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
         cbor::CborBytes(self.content.clone()).encode(e)
     }
 }
 
-#[cfg(unix)]
-mod memlock {
-    extern crate libc;
 
-    pub fn mlock(cont: &Vec<u8>) {
-        unsafe {
-            libc::mlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
-        }
+
+
+#[derive(Clone, Eq)]
+pub struct SecBox<T> where T: Sized + Copy {
+    content: Box<T>
+}
+
+impl<T> SecBox<T> where T: Sized + Copy {
+    pub fn new(cont: Box<T>) -> Self {
+        memlock::mlock(box_as_slice(&cont));
+        SecBox { content: cont }
     }
 
-    pub fn munlock(cont: &Vec<u8>) {
-        unsafe {
-            libc::munlock(cont.as_ptr() as *const libc::c_void, cont.len() as libc::size_t);
-        }
+    /// Borrow the contents of the string.
+    pub fn unsecure(&self) -> &T {
+        &self.content
+    }
+
+    /// Mutably borrow the contents of the string.
+    pub fn unsecure_mut(&mut self) -> &mut T {
+        &mut self.content
+    }
+
+    /// Overwrite the string with zeros. This is automatically called in the destructor.
+    pub fn zero_out(&mut self) {
+        mem::zero(box_as_slice_mut(&mut self.content));
     }
 }
 
-#[cfg(not(unix))]
-mod memlock {
-    fn mlock(cont: &Vec<u8>) {
-    }
-
-    fn munlock(cont: &Vec<u8>) {
+// Borrowing
+impl<T> Borrow<T> for SecBox<T> where T: Sized + Copy {
+    fn borrow(&self) -> &T {
+        &self.content
     }
 }
+impl<T> BorrowMut<T> for SecBox<T> where T: Sized + Copy {
+    fn borrow_mut(&mut self) -> &mut T {
+        &mut self.content
+    }
+}
+
+// Overwrite memory with zeros when we're done
+impl<T> Drop for SecBox<T> where T: Sized + Copy {
+    fn drop(&mut self) {
+        self.zero_out();
+        memlock::munlock(box_as_slice_mut(&mut self.content));
+    }
+}
+
+// Constant time comparison
+impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
+    fn eq(&self, other: &SecBox<T>) -> bool {
+        mem::cmp(box_as_slice(&self.content), box_as_slice(&other.content))
+    }
+}
+
+// Make sure sensitive information is not logged accidentally
+impl<T> fmt::Debug for SecBox<T> where T: Sized + Copy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+impl<T> fmt::Display for SecBox<T> where T: Sized + Copy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+
+
 
 #[cfg(test)]
 mod tests {
-    use super::SecStr;
-
+    use super::{SecBox, SecStr, SecVec};
+    
     #[test]
     fn test_basic() {
         let my_sec = SecStr::from("hello");
         assert_eq!(my_sec, SecStr::from("hello".to_string()));
         assert_eq!(my_sec.unsecure(), b"hello");
     }
-
+    
     #[test]
     fn test_zero_out() {
         let mut my_sec = SecStr::from("hello");
         my_sec.zero_out();
         assert_eq!(my_sec.unsecure(), b"\x00\x00\x00\x00\x00");
     }
-
+    
     #[test]
     fn test_comparison() {
         assert_eq!(SecStr::from("hello"),  SecStr::from("hello"));
@@ -196,10 +319,49 @@ mod tests {
         assert!(  SecStr::from("hello") != SecStr::from("helloworld"));
         assert!(  SecStr::from("hello") != SecStr::from(""));
     }
-
+    
     #[test]
     fn test_show() {
         assert_eq!(format!("{}", SecStr::from("hello")), "***SECRET***".to_string());
     }
-
+    
+    #[test]
+    fn test_comparison_zero_out_mb() {
+        let mbstring1 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
+        let mbstring2 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
+        let mbstring3 = SecVec::from(vec!['!','🦄',' ','o','l','l','a','H']);
+        assert!(mbstring1 == mbstring2);
+        assert!(mbstring1 != mbstring3);
+        
+        let mut mbstring = mbstring1.clone();
+        mbstring.zero_out();
+        assert_eq!(mbstring.unsecure(), &['\0','\0','\0','\0','\0','\0','\0','\0']);
+    }
+    
+    const PRIVATE_KEY_1: [u8; 32] = [
+        0xb0, 0x3b, 0x34, 0xc3, 0x3a, 0x1c, 0x44, 0xf2,
+        0x25, 0xb6, 0x62, 0xd2, 0xbf, 0x48, 0x59, 0xb8,
+        0x13, 0x54, 0x11, 0xfa, 0x7b, 0x03, 0x86, 0xd4,
+        0x5f, 0xb7, 0x5d, 0xc5, 0xb9, 0x1b, 0x44, 0x66];
+    
+    const PRIVATE_KEY_2: [u8; 32] = [
+        0xc8, 0x06, 0x43, 0x9d, 0xc9, 0xd2, 0xc4, 0x76,
+        0xff, 0xed, 0x8f, 0x25, 0x80, 0xc0, 0x88, 0x8d,
+        0x58, 0xab, 0x40, 0x6b, 0xf7, 0xae, 0x36, 0x98,
+        0x87, 0x90, 0x21, 0xb9, 0x6b, 0xb4, 0xbf, 0x59];
+    
+    #[test]
+    fn test_secbox() {
+        let key_1 = SecBox::new(Box::new(PRIVATE_KEY_1));
+        let key_2 = SecBox::new(Box::new(PRIVATE_KEY_2));
+        let key_3 = SecBox::new(Box::new(PRIVATE_KEY_1));
+        assert!(key_1 == key_1);
+        assert!(key_1 != key_2);
+        assert!(key_2 != key_3);
+        assert!(key_1 == key_3);
+        
+        let mut final_key = key_1.clone();
+        final_key.zero_out();
+        assert_eq!(final_key.unsecure(), &[0; 32]);
+    }
 }
