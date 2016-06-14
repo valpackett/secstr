@@ -193,6 +193,15 @@ impl<T, U> From<U> for SecVec<T> where U: Into<Vec<T>>, T: Sized + Copy {
     }
 }
 
+// Vec item indexing
+impl<T, U> std::ops::Index<U> for SecVec<T> where T: Sized + Copy, Vec<T>: std::ops::Index<U> {
+    type Output = <Vec<T> as std::ops::Index<U>>::Output;
+    
+    fn index(&self, index: U) -> &Self::Output {
+        std::ops::Index::index(&self.content, index)
+    }
+}
+
 // Borrowing
 impl<T> Borrow<[T]> for SecVec<T> where T: Sized + Copy {
     fn borrow(&self) -> &[T] {
@@ -299,6 +308,15 @@ impl<T> SecBox<T> where T: Sized + Copy {
     }
 }
 
+// Delegate indexing
+impl<T, U> std::ops::Index<U> for SecBox<T> where T: std::ops::Index<U> + Sized + Copy {
+    type Output = <T as std::ops::Index<U>>::Output;
+    
+    fn index(&self, index: U) -> &Self::Output {
+        std::ops::Index::index(self.content.as_ref(), index)
+    }
+}
+
 // Borrowing
 impl<T> Borrow<T> for SecBox<T> where T: Sized + Copy {
     fn borrow(&self) -> &T {
@@ -374,6 +392,13 @@ mod tests {
         assert!(  SecStr::from("hello") != SecStr::from(""));
     }
 
+    #[test]
+    fn test_indexing() {
+        let string = SecStr::from("hello");
+        assert_eq!(string[0],       'h' as u8);
+        assert_eq!(&string[3 .. 5], "lo".as_bytes());
+    }
+    
     #[test]
     fn test_show() {
         assert_eq!(format!("{:?}", SecStr::from("hello")), "***SECRET***".to_string());
