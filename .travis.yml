@@ -1,7 +1,7 @@
 sudo: false
 language: rust
+script: cargo test --verbose && cargo test --verbose --features "libsodium-sys serde"
 rust:
   - stable
   - beta
   - nightly
-after_success: cargo doc && curl https://raw.githubusercontent.com/myfreeweb/autodocs/master/travis-doc-upload.sh | sh
