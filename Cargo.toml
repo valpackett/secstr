@@ -13,11 +13,10 @@ documentation = "https://myfreeweb.github.io/autodocs/secstr/secstr"
 [lib]
 name = "secstr"
 
-[features]
-cbor-serialize = ["rustc-serialize", "cbor"]
-
 [dependencies]
 libc = "0.2"
 libsodium-sys = { version = "0", optional = true }
-cbor = { version = "0", optional = true }
-rustc-serialize = { version = "0", optional = true }
+serde = { version = "1.0", optional = true }
+
+[dev-dependencies]
+serde_cbor = "0.6.0-alpha"

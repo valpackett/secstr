@@ -10,14 +10,14 @@ Featuring:
 - `mlock` protection if possible
 - formatting as `***SECRET***` to prevent leaking into logs
 - (optionally) using libsodium (through [sodiumoxide]'s [libsodium-sys]) for the zeroing and comparison
-- (optionally) serializable into [CBOR] as a byte string
+- (optionally) de/serializable into anything [Serde] supports as a byte string
 
 [Rust]: https://www.rust-lang.org
 [securemem]: https://hackage.haskell.org/package/securemem
 [SecureString]: http://msdn.microsoft.com/en-us/library/system.security.securestring%28v=vs.110%29.aspx
 [sodiumoxide]: https://crates.io/crates/sodiumoxide
 [libsodium-sys]: https://crates.io/crates/libsodium-sys
-[CBOR]: https://github.com/BurntSushi/rust-cbor
+[Serde]: https://serde.rs/
 
 ## Usage
 
@@ -48,9 +48,8 @@ Use `SecStr::new` if you have a `Vec<u8>`.
 ## Contributing
 
 Please feel free to submit pull requests!
-Bugfixes and simple non-breaking improvements will be accepted without any questions :-)
 
-By participating in this project you agree to follow the [Contributor Code of Conduct](http://contributor-covenant.org/version/1/2/0/).
+By participating in this project you agree to follow the [Contributor Code of Conduct](http://contributor-covenant.org/version/1/4/) and to release your contributions under the Unlicense.
 
 [The list of contributors is available on GitHub](https://github.com/myfreeweb/secstr/graphs/contributors).
 

@@ -1,9 +1,10 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
-#[cfg(feature = "cbor-serialize")] extern crate cbor;
-#[cfg(feature = "cbor-serialize")] extern crate rustc_serialize;
+#[cfg(feature = "serde")] extern crate serde;
 use std::fmt;
 use std::borrow::{Borrow, BorrowMut};
-#[cfg(feature = "cbor-serialize")] use rustc_serialize::{Decoder, Encoder, Decodable, Encodable};
+#[cfg(feature = "serde")] use serde::ser::{Serialize, Serializer};
+#[cfg(feature = "serde")] use serde::de::{self, Deserialize, Deserializer, Visitor};
+#[cfg(all(test, feature = "serde"))] extern crate serde_cbor;
 
 
 /**
@@ -33,18 +34,18 @@ fn box_as_slice_mut<T: Sized + Copy>(reference: &mut Box<T>) -> &mut [T] {
 mod mem {
     extern crate libsodium_sys as sodium;
     use ::size_of;
-    
+
     pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
         unsafe {
             sodium::sodium_memzero(slice.as_ptr() as *mut u8, size_of(slice));
         }
     }
-    
+
     pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
         if us.len() != them.len() {
             return false;
         }
-        
+
         unsafe {
             sodium::sodium_memcmp(us.as_ptr() as *const u8, them.as_ptr() as *const u8, size_of(them)) == 0
         }
@@ -54,9 +55,9 @@ mod mem {
 #[cfg(not(feature = "libsodium-sys"))]
 mod mem {
     use std;
-    
+
     use ::size_of;
-    
+
     #[inline(never)]
     pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
         let ptr = slice.as_mut_ptr() as *mut u8;
@@ -66,15 +67,15 @@ mod mem {
             }
         }
     }
-    
+
     #[inline(never)]
     pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
         if us.len() != them.len() {
             return false;
         }
-        
+
         let mut result: u8 = 0;
-        
+
         let ptr_us   = us.as_ptr()   as *mut u8;
         let ptr_them = them.as_ptr() as *mut u8;
         for i in 0 .. size_of(us) {
@@ -82,7 +83,7 @@ mod mem {
                 result |= *(ptr_us.offset(i as isize)) ^ *(ptr_them.offset(i as isize));
             }
         }
-        
+
         result == 0
     }
 }
@@ -92,15 +93,15 @@ mod mem {
 #[cfg(unix)]
 mod memlock {
     extern crate libc;
-    
+
     use ::size_of;
-    
+
     pub fn mlock<T: Sized>(cont: &[T]) {
         unsafe {
             libc::mlock(cont.as_ptr() as *const libc::c_void, size_of(cont));
         }
     }
-    
+
     pub fn munlock<T: Sized>(cont: &[T]) {
         unsafe {
             libc::munlock(cont.as_ptr() as *const libc::c_void, size_of(cont));
@@ -207,22 +208,35 @@ impl<T> fmt::Display for SecVec<T> where T: Sized + Copy {
     }
 }
 
-#[cfg(feature = "cbor-serialize")]
-impl<T> Decodable for SecVec<T> where T: Sized + Copy {
-    fn decode<D: Decoder>(d: &mut D) -> Result<SecStr, D::Error> {
-        let cbor::CborBytes(content) = try!(cbor::CborBytes::decode(d));
-        Ok(SecVec::<T>::new(content))
+#[cfg(feature = "serde")]
+struct BytesVisitor;
+
+#[cfg(feature = "serde")]
+impl<'de> Visitor<'de> for BytesVisitor {
+    type Value = SecVec<u8>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a byte array")
+    }
+
+    fn visit_bytes<E>(self, value: &[u8]) -> Result<SecVec<u8>, E> where E: de::Error {
+        Ok(SecStr::from(value))
     }
 }
 
-#[cfg(feature = "cbor-serialize")]
-impl<T> Encodable for SecVec<T> where T: Sized + Copy {
-    fn encode<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
-        cbor::CborBytes(self.content.clone()).encode(e)
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for SecVec<u8> {
+    fn deserialize<D>(deserializer: D) -> Result<SecVec<u8>, D::Error> where D: Deserializer<'de> {
+        deserializer.deserialize_bytes(BytesVisitor)
     }
 }
 
-
+#[cfg(feature = "serde")]
+impl Serialize for SecVec<u8> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        serializer.serialize_bytes(self.content.borrow())
+    }
+}
 
 
 #[derive(Clone, Eq)]
@@ -296,21 +310,21 @@ impl<T> fmt::Display for SecBox<T> where T: Sized + Copy {
 #[cfg(test)]
 mod tests {
     use super::{SecBox, SecStr, SecVec};
-    
+
     #[test]
     fn test_basic() {
         let my_sec = SecStr::from("hello");
         assert_eq!(my_sec, SecStr::from("hello".to_string()));
         assert_eq!(my_sec.unsecure(), b"hello");
     }
-    
+
     #[test]
     fn test_zero_out() {
         let mut my_sec = SecStr::from("hello");
         my_sec.zero_out();
         assert_eq!(my_sec.unsecure(), b"\x00\x00\x00\x00\x00");
     }
-    
+
     #[test]
     fn test_comparison() {
         assert_eq!(SecStr::from("hello"),  SecStr::from("hello"));
@@ -319,12 +333,12 @@ mod tests {
         assert!(  SecStr::from("hello") != SecStr::from("helloworld"));
         assert!(  SecStr::from("hello") != SecStr::from(""));
     }
-    
+
     #[test]
     fn test_show() {
         assert_eq!(format!("{}", SecStr::from("hello")), "***SECRET***".to_string());
     }
-    
+
     #[test]
     fn test_comparison_zero_out_mb() {
         let mbstring1 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
@@ -332,24 +346,24 @@ mod tests {
         let mbstring3 = SecVec::from(vec!['!','🦄',' ','o','l','l','a','H']);
         assert!(mbstring1 == mbstring2);
         assert!(mbstring1 != mbstring3);
-        
+
         let mut mbstring = mbstring1.clone();
         mbstring.zero_out();
         assert_eq!(mbstring.unsecure(), &['\0','\0','\0','\0','\0','\0','\0','\0']);
     }
-    
+
     const PRIVATE_KEY_1: [u8; 32] = [
         0xb0, 0x3b, 0x34, 0xc3, 0x3a, 0x1c, 0x44, 0xf2,
         0x25, 0xb6, 0x62, 0xd2, 0xbf, 0x48, 0x59, 0xb8,
         0x13, 0x54, 0x11, 0xfa, 0x7b, 0x03, 0x86, 0xd4,
         0x5f, 0xb7, 0x5d, 0xc5, 0xb9, 0x1b, 0x44, 0x66];
-    
+
     const PRIVATE_KEY_2: [u8; 32] = [
         0xc8, 0x06, 0x43, 0x9d, 0xc9, 0xd2, 0xc4, 0x76,
         0xff, 0xed, 0x8f, 0x25, 0x80, 0xc0, 0x88, 0x8d,
         0x58, 0xab, 0x40, 0x6b, 0xf7, 0xae, 0x36, 0x98,
         0x87, 0x90, 0x21, 0xb9, 0x6b, 0xb4, 0xbf, 0x59];
-    
+
     #[test]
     fn test_secbox() {
         let key_1 = SecBox::new(Box::new(PRIVATE_KEY_1));
@@ -359,9 +373,21 @@ mod tests {
         assert!(key_1 != key_2);
         assert!(key_2 != key_3);
         assert!(key_1 == key_3);
-        
+
         let mut final_key = key_1.clone();
         final_key.zero_out();
         assert_eq!(final_key.unsecure(), &[0; 32]);
     }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serialization() {
+        use serde_cbor::{to_vec, from_slice};
+        let my_sec = SecStr::from("hello");
+        let my_cbor = to_vec(&my_sec).unwrap();
+        assert_eq!(my_cbor, b"\x45hello");
+        let my_sec2 = from_slice(&my_cbor).unwrap();
+        assert_eq!(my_sec, my_sec2);
+    }
+
 }
