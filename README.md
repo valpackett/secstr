@@ -1,4 +1,4 @@
-# secstr [![crates.io](https://img.shields.io/crates/v/secstr.svg)](https://crates.io/crates/secstr) [![Build Status](https://img.shields.io/travis/myfreeweb/secstr.svg?style=flat)](https://travis-ci.org/myfreeweb/secstr) [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](https://myfreeweb.github.io/autodocs/secstr/secstr) [![unlicense](https://img.shields.io/badge/un-license-green.svg?style=flat)](http://unlicense.org)
+# secstr [![crates.io](https://img.shields.io/crates/v/secstr.svg)](https://crates.io/crates/secstr) [![Build Status](https://img.shields.io/travis/myfreeweb/secstr.svg?style=flat)](https://travis-ci.org/myfreeweb/secstr) [![API Docs](https://docs.rs/secstr/badge.svg)](https://docs.rs/secstr/) [![unlicense](https://img.shields.io/badge/un-license-green.svg?style=flat)](http://unlicense.org)
 
 A [Rust] library that implements a data type (wrapper around `Vec<u8>`) suitable for storing sensitive information such as passwords and private keys in memory.
 Inspired by Haskell [securemem] and .NET [SecureString].
