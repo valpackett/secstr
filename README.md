@@ -14,7 +14,7 @@ Featuring:
 - automatically zeroing out in the destructor
 - `mlock` protection if possible
 - formatting as `***SECRET***` to prevent leaking into logs
-- (optionally) using libsodium (through [sodiumoxide]'s [libsodium-sys]) for the zeroing and comparison
+- (optionally) using libsodium (through [sodiumoxide]'s [libsodium-sys]) for zeroing, comparison, and hashing (`std::hash::Hash`)
 - (optionally) de/serializable into anything [Serde] supports as a byte string
 
 [Rust]: https://www.rust-lang.org
