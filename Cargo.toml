@@ -1,6 +1,6 @@
 [package]
 name = "secstr"
-version = "0.3.0"
+version = "0.3.1"
 authors = [ "Greg V <greg@unrelenting.technology>" ]
 keywords = [ "Security", "Memory" ]
 description = "A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out."
