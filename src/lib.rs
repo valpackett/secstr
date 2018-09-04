@@ -38,7 +38,7 @@ mod mem {
 
     pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
         unsafe {
-            sodium::sodium_memzero(slice.as_ptr() as *mut u8, size_of(slice));
+            sodium::sodium_memzero(slice.as_ptr() as *mut _, size_of(slice));
         }
     }
 
@@ -48,15 +48,15 @@ mod mem {
         }
 
         unsafe {
-            sodium::sodium_memcmp(us.as_ptr() as *const u8, them.as_ptr() as *const u8, size_of(them)) == 0
+            sodium::sodium_memcmp(us.as_ptr() as *const _, them.as_ptr() as *const _, size_of(them)) == 0
         }
     }
     
     pub fn hash<T: Sized + Copy, H>(slice: &[T], state: &mut H) where H: std::hash::Hasher {
         // Hash the private data
-        let mut hash = [0u8; sodium::crypto_hash_BYTES];
+        let mut hash = [0u8; sodium::crypto_hash_BYTES as _];
         unsafe {
-            assert_eq!(sodium::crypto_hash(&mut hash, slice.as_ptr() as *const u8, size_of(slice) as u64), 0);
+            assert_eq!(sodium::crypto_hash(&mut hash[0] as *mut _, slice.as_ptr() as *const _, size_of(slice) as u64), 0);
         };
         
         // Hash again with the current internal state of the outer hasher added as "salt" (will include a per-thread random value for the default SipHasher)
@@ -68,9 +68,9 @@ mod mem {
             round2.extend_from_slice(salt);
         };
         
-        let mut hash2 = [0u8; sodium::crypto_hash_BYTES];
+        let mut hash2 = [0u8; sodium::crypto_hash_BYTES as _];
         unsafe {
-            assert_eq!(sodium::crypto_hash(&mut hash2, round2.as_ptr(), round2.len() as u64), 0);
+            assert_eq!(sodium::crypto_hash(&mut hash2[0] as *mut _, round2.as_ptr(), round2.len() as u64), 0);
         };
         
         // Use this final value as state
