@@ -51,14 +51,14 @@ mod mem {
             sodium::sodium_memcmp(us.as_ptr() as *const _, them.as_ptr() as *const _, size_of(them)) == 0
         }
     }
-    
+
     pub fn hash<T: Sized + Copy, H>(slice: &[T], state: &mut H) where H: std::hash::Hasher {
         // Hash the private data
         let mut hash = [0u8; sodium::crypto_hash_BYTES as _];
         unsafe {
             assert_eq!(sodium::crypto_hash(&mut hash[0] as *mut _, slice.as_ptr() as *const _, size_of(slice) as u64), 0);
         };
-        
+
         // Hash again with the current internal state of the outer hasher added as "salt" (will include a per-thread random value for the default SipHasher)
         let mut round2 = Vec::new();
         unsafe {
@@ -67,12 +67,12 @@ mod mem {
             round2.extend_from_slice(&hash);
             round2.extend_from_slice(salt);
         };
-        
+
         let mut hash2 = [0u8; sodium::crypto_hash_BYTES as _];
         unsafe {
             assert_eq!(sodium::crypto_hash(&mut hash2[0] as *mut _, round2.as_ptr(), round2.len() as u64), 0);
         };
-        
+
         // Use this final value as state
         state.write(&hash2 as &[u8]);
     }
@@ -149,15 +149,89 @@ mod memlock {
 /// Type alias for a vector that stores just bytes
 pub type SecStr = SecVec<u8>;
 
+/// Wrapper for a vector that stores a valid UTF-8 string
+#[derive(Clone, Eq)]
+pub struct SecUtf8(SecVec<u8>);
 
-/// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:  
-/// 
-/// - Automatic zeroing in `Drop`  
-/// - Constant time comparison in `PartialEq` (does not short circuit on the first different character; but terminates instantly if strings have different length)  
-/// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`  
-/// - Automatic `mlock` to protect against leaking into swap  
-/// 
-/// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.  
+impl SecUtf8 {
+    pub fn unsecure(&self) -> &str {
+        unsafe { std::str::from_utf8_unchecked(self.0.unsecure())}
+    }
+}
+
+impl PartialEq for SecUtf8 {
+    fn eq(&self, other: &SecUtf8) -> bool {
+        // use implementation of SecVec
+        self.0 == other.0
+    }
+}
+
+impl fmt::Debug for SecUtf8 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+
+impl fmt::Display for SecUtf8 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+    }
+}
+
+impl<U> From<U> for SecUtf8 where U: Into<Vec<u8>> {
+    fn from(s: U) -> SecUtf8 {
+        SecUtf8(SecVec::new(s.into()))
+    }
+}
+
+impl From<SecUtf8> for String {
+    fn from(mut s: SecUtf8) -> String {
+        let content = std::mem::replace(&mut s.0.content, Vec::new());
+        unsafe { String::from_utf8_unchecked(content) }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for SecUtf8 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.unsecure())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for SecUtf8 {
+    fn deserialize<D>(deserializer: D) -> Result<SecUtf8, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SecUtf8Visitor;
+        impl<'de> serde::de::Visitor<'de> for SecUtf8Visitor {
+            type Value = SecUtf8;
+            fn expecting(&self, formatter: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                write!(formatter, "an utf-8 encoded string")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(SecUtf8::from(v.to_string()))
+            }
+        }
+        deserializer.deserialize_string(SecUtf8Visitor)
+    }
+}
+
+/// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:
+///
+/// - Automatic zeroing in `Drop`
+/// - Constant time comparison in `PartialEq` (does not short circuit on the first different character; but terminates instantly if strings have different length)
+/// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`
+/// - Automatic `mlock` to protect against leaking into swap
+///
+/// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.
 /// Use `SecStr::new` if you have a `Vec<u8>`.
 #[derive(Clone, Eq)]
 pub struct SecVec<T> where T: Sized + Copy {
@@ -196,7 +270,7 @@ impl<T, U> From<U> for SecVec<T> where U: Into<Vec<T>>, T: Sized + Copy {
 // Vec item indexing
 impl<T, U> std::ops::Index<U> for SecVec<T> where T: Sized + Copy, Vec<T>: std::ops::Index<U> {
     type Output = <Vec<T> as std::ops::Index<U>>::Output;
-    
+
     fn index(&self, index: U) -> &Self::Output {
         std::ops::Index::index(&self.content, index)
     }
@@ -311,7 +385,7 @@ impl<T> SecBox<T> where T: Sized + Copy {
 // Delegate indexing
 impl<T, U> std::ops::Index<U> for SecBox<T> where T: std::ops::Index<U> + Sized + Copy {
     type Output = <T as std::ops::Index<U>>::Output;
-    
+
     fn index(&self, index: U) -> &Self::Output {
         std::ops::Index::index(self.content.as_ref(), index)
     }
@@ -398,20 +472,20 @@ mod tests {
         assert_eq!(string[0],       'h' as u8);
         assert_eq!(&string[3 .. 5], "lo".as_bytes());
     }
-    
+
     #[test]
     fn test_show() {
         assert_eq!(format!("{:?}", SecStr::from("hello")), "***SECRET***".to_string());
         assert_eq!(format!("{}",   SecStr::from("hello")), "***SECRET***".to_string());
     }
-    
+
     #[cfg(feature = "libsodium-sys")]
     #[test]
     fn test_hashing() {
         use std::hash::*;
-        
+
         let value = SecStr::from("hello");
-        
+
         let mut hasher = SipHasher::new(); // Variant of SipHasher that does not use random values
         value.hash(&mut hasher);
         assert_eq!(hasher.finish(), 12960579610752219549);
