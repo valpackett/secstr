@@ -157,6 +157,11 @@ impl SecUtf8 {
     pub fn unsecure(&self) -> &str {
         unsafe { std::str::from_utf8_unchecked(self.0.unsecure())}
     }
+
+    pub fn into_unsecure(mut self) -> String {
+        let content = std::mem::replace(&mut self.0.content, Vec::new());
+        unsafe { String::from_utf8_unchecked(content) }
+    }
 }
 
 impl PartialEq for SecUtf8 {
@@ -178,16 +183,9 @@ impl fmt::Display for SecUtf8 {
     }
 }
 
-impl<U> From<U> for SecUtf8 where U: Into<Vec<u8>> {
+impl<U> From<U> for SecUtf8 where U: Into<String> {
     fn from(s: U) -> SecUtf8 {
-        SecUtf8(SecVec::new(s.into()))
-    }
-}
-
-impl From<SecUtf8> for String {
-    fn from(mut s: SecUtf8) -> String {
-        let content = std::mem::replace(&mut s.0.content, Vec::new());
-        unsafe { String::from_utf8_unchecked(content) }
+        SecUtf8(SecVec::new(s.into().into_bytes()))
     }
 }
 
