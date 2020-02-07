@@ -1,11 +1,13 @@
-os:
-  - linux
-  - osx
-  - windows
-arch:
-  - amd64
-  - ppc64le
-  - arm64
+jobs:
+  include:
+    - os: linux
+      arch: amd64
+    - os: linux
+      arch: arm64
+    - os: linux
+      arch: ppc64le
+    - os: osx
+    - os: windows
 sudo: false
 language: rust
 script: cargo test --verbose && cargo test --verbose --features "serde"
