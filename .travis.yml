@@ -1,7 +1,14 @@
+os:
+  - linux
+  - osx
+  - windows
+arch:
+  - amd64
+  - ppc64le
+  - arm64
 sudo: false
 language: rust
 script: cargo test --verbose && cargo test --verbose --features "serde"
 rust:
   - stable
-  - beta
   - nightly
