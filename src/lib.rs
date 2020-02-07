@@ -124,13 +124,23 @@ mod memlock {
 
     pub fn mlock<T: Sized>(cont: &[T]) {
         unsafe {
-            libc::mlock(cont.as_ptr() as *const libc::c_void, size_of(cont));
+            let ptr = cont.as_ptr() as *mut libc::c_void;
+            libc::mlock(ptr, size_of(cont));
+            #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+            libc::madvise(ptr, size_of(cont), libc::MADV_NOCORE);
+            #[cfg(target_os = "linux")]
+            libc::madvise(ptr, size_of(cont), libc::MADV_DONTDUMP);
         }
     }
 
     pub fn munlock<T: Sized>(cont: &[T]) {
         unsafe {
-            libc::munlock(cont.as_ptr() as *const libc::c_void, size_of(cont));
+            let ptr = cont.as_ptr() as *mut libc::c_void;
+            libc::munlock(ptr, size_of(cont));
+            #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+            libc::madvise(ptr, size_of(cont), libc::MADV_CORE);
+            #[cfg(target_os = "linux")]
+            libc::madvise(ptr, size_of(cont), libc::MADV_DODUMP);
         }
     }
 }
@@ -227,7 +237,8 @@ impl<'de> serde::Deserialize<'de> for SecUtf8 {
 /// - Automatic zeroing in `Drop`
 /// - Constant time comparison in `PartialEq` (does not short circuit on the first different character; but terminates instantly if strings have different length)
 /// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`
-/// - Automatic `mlock` to protect against leaking into swap
+/// - Automatic `mlock` to protect against leaking into swap (any unix)
+/// - Automatic `madvise(MADV_NOCORE/MADV_DONTDUMP)` to protect against leaking into core dumps (FreeBSD, DragonflyBSD, Linux)
 ///
 /// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.
 /// Use `SecStr::new` if you have a `Vec<u8>`.
