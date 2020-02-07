@@ -19,4 +19,4 @@ libsodium-sys = { version = "0", optional = true }
 serde = { version = "1.0", optional = true }
 
 [dev-dependencies]
-serde_cbor = "0.9"
+serde_cbor = "0.11"
