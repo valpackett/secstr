@@ -12,7 +12,7 @@ Featuring:
 
 - constant time comparison (does not short circuit on the first different character; but terminates instantly if strings have different length)
 - automatically zeroing out in the destructor
-- `mlock` protection if possible
+- `mlock` and `madvise` protection if possible
 - formatting as `***SECRET***` to prevent leaking into logs
 - (optionally) using libsodium (through [sodiumoxide]'s [libsodium-sys]) for zeroing, comparison, and hashing (`std::hash::Hash`)
 - (optionally) de/serializable into anything [Serde] supports as a byte string
