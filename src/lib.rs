@@ -18,14 +18,14 @@ fn size_of<T: Sized>(slice: &[T]) -> usize {
  * Create a slice reference from the given box reference
  */
 fn box_as_slice<T: Sized>(reference: &Box<T>) -> &[T] {
-    unsafe { std::slice::from_raw_parts(reference as &T, 1) }
+    std::slice::from_ref(reference)
 }
 
 /**
  * Create a slice reference from the given box reference
  */
 fn box_as_slice_mut<T: Sized + Copy>(reference: &mut Box<T>) -> &mut [T] {
-    unsafe { std::slice::from_raw_parts_mut(reference as &mut T, 1) }
+    std::slice::from_mut(reference)
 }
 
 
