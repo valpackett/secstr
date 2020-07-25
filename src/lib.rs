@@ -42,14 +42,16 @@ mod mem {
         sodium::sodium_memzero(ptr as *mut _, count);
     }
 
-    pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre("`T` does not have any padding bytes")
+    )]
+    pub unsafe fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
         if us.len() != them.len() {
             return false;
         }
 
-        unsafe {
-            sodium::sodium_memcmp(us.as_ptr() as *const _, them.as_ptr() as *const _, size_of(them)) == 0
-        }
+        sodium::sodium_memcmp(us.as_ptr() as *const _, them.as_ptr() as *const _, size_of(them)) == 0
     }
 
     #[cfg_attr(
@@ -162,9 +164,9 @@ mod mem {
     #[inline(never)]
     #[cfg_attr(
         any(test, feature = "pre"),
-        pre::pre
+        pre::pre("`T` does not have any padding bytes")
     )]
-    pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
+    pub unsafe fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
         if us.len() != them.len() {
             return false;
         }
@@ -174,7 +176,7 @@ mod mem {
         let ptr_us   = us.as_ptr()   as *mut u8;
         let ptr_them = them.as_ptr() as *mut u8;
         for i in 0 .. size_of(us) {
-            let us_val = unsafe {
+            let us_val = {
                 #[cfg_attr(
                     any(test, feature = "pre"),
                     forward(impl pre::std::const_pointer),
@@ -219,7 +221,7 @@ mod mem {
                 )]
                 std::ptr::read_volatile(ptr)
             };
-            let them_val = unsafe {
+            let them_val = {
                 #[cfg_attr(
                     any(test, feature = "pre"),
                     forward(impl pre::std::const_pointer),
@@ -535,8 +537,22 @@ impl<T> Drop for SecVec<T> where T: Sized + Copy {
 
 // Constant time comparison
 impl<T> PartialEq for SecVec<T> where T: Sized + Copy {
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     fn eq(&self, other: &SecVec<T>) -> bool {
-        mem::cmp(&self.content, &other.content)
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            assure(
+                "`T` does not have any padding bytes",
+                reason = "this is technically undefined behavior, because `T` may contain padding bytes,
+                which are not guaranteed to be initialized.
+                Without more information about `T`, it is pretty much impossible to avoid this though
+                and this has no UB for types without padding bytes."
+            )
+        )]
+        unsafe { mem::cmp(&self.content, &other.content) }
     }
 }
 
@@ -720,8 +736,22 @@ impl<T> Drop for SecBox<T> where T: Sized + Copy {
 
 // Constant time comparison
 impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     fn eq(&self, other: &SecBox<T>) -> bool {
-        mem::cmp(box_as_slice(self.content.as_ref().unwrap()), box_as_slice(other.content.as_ref().unwrap()))
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            assure(
+                "`T` does not have any padding bytes",
+                reason = "this is technically undefined behavior, because `T` may contain padding bytes,
+                which are not guaranteed to be initialized.
+                Without more information about `T`, it is pretty much impossible to avoid this though
+                and this has no UB for types without padding bytes."
+            )
+        )]
+        unsafe { mem::cmp(box_as_slice(self.content.as_ref().unwrap()), box_as_slice(other.content.as_ref().unwrap())) }
     }
 }
 
