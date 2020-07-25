@@ -52,6 +52,10 @@ mod mem {
         }
     }
 
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     pub fn hash<T: Sized + Copy, H>(slice: &[T], state: &mut H) where H: std::hash::Hasher {
         // Hash the private data
         let mut hash = [0u8; sodium::crypto_hash_BYTES as _];
@@ -61,8 +65,36 @@ mod mem {
 
         // Hash again with the current internal state of the outer hasher added as "salt" (will include a per-thread random value for the default SipHasher)
         let mut round2 = Vec::new();
-        unsafe {
-            let salt = std::slice::from_raw_parts(state as *const H as *const u8, std::mem::size_of::<H>());
+        {
+            #[cfg_attr(
+                any(test, feature = "pre"),
+                forward(pre),
+                assure(
+                    valid_ptr(data, r),
+                    reason = "the pointer is created from the reference `state`, which is guaranteed to be valid for reads"
+                ),
+                assure(
+                    proper_align(data),
+                    reason = "the type of the pointer is `u8` with alignment `1`, which every pointer is guaranteed to have"
+                ),
+                assure(
+                    "the allocated object at `data` is valid for `len * mem::size_of::<T>()` bytes",
+                    reason = "since `mem::size_of::<u8>() == 1`, the allocated object must be valid for
+                              `len == mem::size_of::<H>()` bytes, which it is guaranteed to be, because it is created from a
+                              reference to a value of `H`"
+                ),
+                assure(
+                    "the memory referenced by the returned slice is not mutated by any pointer for the duration of `'a`, except inside a contained `UnsafeCell`",
+                    reason = "the pointer is created from a mutable reference, so we have exlusive access to the value here
+                              and the returned slice is not modified either, so no pointer modifies the memory"
+                ),
+                assure(
+                    len * ::core::mem::size_of::<T>() <= isize::MAX as usize,
+                    reason = "`len * mem::size_of::<u8>() == mem::size_of::<H>()` and the compiler fails to compile types
+                              with a size greater than `isize::MAX`"
+                )
+            )]
+            let salt = unsafe { std::slice::from_raw_parts(state as *const H as *const u8, std::mem::size_of::<H>()) };
             round2.reserve_exact(hash.len() + salt.len());
             round2.extend_from_slice(&hash);
             round2.extend_from_slice(salt);
@@ -197,12 +229,40 @@ pub type SecStr = SecVec<u8>;
 pub struct SecUtf8(SecVec<u8>);
 
 impl SecUtf8 {
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     pub fn unsecure(&self) -> &str {
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            forward(pre),
+            assure(
+                "the content of `v` is valid UTF-8",
+                reason = "it is not possible to create a `SecUtf8` with invalid UTF-8 content
+                and it is also not possible to modify the content directly, so they must still
+                be valid UTF-8 here"
+            )
+        )]
         unsafe { std::str::from_utf8_unchecked(self.0.unsecure())}
     }
 
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     pub fn into_unsecure(mut self) -> String {
         let content = std::mem::replace(&mut self.0.content, Vec::new());
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            forward(impl pre::std::string::String),
+            assure(
+                "the content of `bytes` is valid UTF-8",
+                reason = "it is not possible to create a `SecUtf8` with invalid UTF-8 content
+                and it is also not possible to modify the content directly, so they must still
+                be valid UTF-8 here"
+            )
+        )]
         unsafe { String::from_utf8_unchecked(content) }
     }
 }
