@@ -439,31 +439,93 @@ impl Serialize for SecVec<u8> {
 
 #[derive(Clone, Eq)]
 pub struct SecBox<T> where T: Sized + Copy {
-    content: Box<T>
+    // This is an `Option` to avoid UB in the destructor, outside the destructor, it is always
+    // `Some(_)`
+    content: Option<Box<T>>
 }
 
 impl<T> SecBox<T> where T: Sized + Copy {
     pub fn new(mut cont: Box<T>) -> Self {
         memlock::mlock(&mut cont, std::mem::size_of::<T>());
-        SecBox { content: cont }
+        SecBox { content: Some(cont) }
     }
 
     /// Borrow the contents of the string.
     pub fn unsecure(&self) -> &T {
-        &self.content
+        self.content.as_ref().unwrap()
     }
 
     /// Mutably borrow the contents of the string.
     pub fn unsecure_mut(&mut self) -> &mut T {
-        &mut self.content
+        self.content.as_mut().unwrap()
     }
+}
 
-    /// Overwrite the string with zeros. This is automatically called in the destructor.
+/// Overwrite the contents with zeros. This is automatically done in the destructor.
+///
+/// # Safety
+/// An all-zero byte-pattern must be a valid value of `T` in order for this function call to not be
+/// undefined behavior.
+#[cfg_attr(
+    any(test, feature = "pre"),
+    pre::pre("an all-zero byte-pattern is a valid value of `T`")
+)]
+pub unsafe fn zero_out_secbox<T>(secbox: &mut SecBox<T>) where T: Sized + Copy {
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        assure(
+            valid_ptr(ptr, w),
+            reason = "`ptr` comes from a valid box, which is guaranteed to be a valid pointer"
+        ),
+        assure(
+            "`ptr` points to a single allocation that is valid for at least `count` bytes",
+            reason = "a `Box<T>` points to an allocation of at least `mem::size_of::<T>()` bytes"
+        ),
+        assure(
+            count <= std::isize::MAX as usize,
+            reason = "`mem::size_of::<T>()` cannot return a value larger than `isize::MAX`"
+        )
+    )]
+    mem::zero(&mut **secbox.content.as_mut().unwrap() as *mut T as *mut u8, std::mem::size_of::<T>());
+}
+
+// Delegate indexing
+impl<T, U> std::ops::Index<U> for SecBox<T> where T: std::ops::Index<U> + Sized + Copy {
+    type Output = <T as std::ops::Index<U>>::Output;
+
+    fn index(&self, index: U) -> &Self::Output {
+        std::ops::Index::index(self.content.as_ref().unwrap().as_ref(), index)
+    }
+}
+
+// Borrowing
+impl<T> Borrow<T> for SecBox<T> where T: Sized + Copy {
+    fn borrow(&self) -> &T {
+        self.content.as_ref().unwrap()
+    }
+}
+impl<T> BorrowMut<T> for SecBox<T> where T: Sized + Copy {
+    fn borrow_mut(&mut self) -> &mut T {
+        self.content.as_mut().unwrap()
+    }
+}
+
+// Overwrite memory with zeros when we're done
+impl<T> Drop for SecBox<T> where T: Sized + Copy {
     #[cfg_attr(
         any(test, feature = "pre"),
         pre::pre
     )]
-    pub fn zero_out(&mut self) {
+    fn drop(&mut self) {
+        // Make sure that the box does not need to be dropped after this function, because it may
+        // see an invalid type, if `T` does not support an all-zero byte-pattern
+        // Instead we manually destruct the box and only handle the potentially invalid values
+        // behind the pointer
+        let ptr = Box::into_raw(self.content.take().unwrap());
+
+        // There is no need to worry about dropping the contents, because `T: Copy` and `Copy`
+        // types cannot implement `Drop`
+
         #[cfg_attr(
             any(test, feature = "pre"),
             assure(
@@ -479,43 +541,24 @@ impl<T> SecBox<T> where T: Sized + Copy {
                 reason = "`mem::size_of::<T>()` cannot return a value larger than `isize::MAX`"
             )
         )]
-        unsafe { mem::zero(&mut *self.content as *mut T as *mut u8, std::mem::size_of::<T>()) };
-    }
-}
+        unsafe { mem::zero(ptr as *mut u8, std::mem::size_of::<T>()) };
+        memlock::munlock(ptr, std::mem::size_of::<T>());
 
-// Delegate indexing
-impl<T, U> std::ops::Index<U> for SecBox<T> where T: std::ops::Index<U> + Sized + Copy {
-    type Output = <T as std::ops::Index<U>>::Output;
-
-    fn index(&self, index: U) -> &Self::Output {
-        std::ops::Index::index(self.content.as_ref(), index)
-    }
-}
-
-// Borrowing
-impl<T> Borrow<T> for SecBox<T> where T: Sized + Copy {
-    fn borrow(&self) -> &T {
-        &self.content
-    }
-}
-impl<T> BorrowMut<T> for SecBox<T> where T: Sized + Copy {
-    fn borrow_mut(&mut self) -> &mut T {
-        &mut self.content
-    }
-}
-
-// Overwrite memory with zeros when we're done
-impl<T> Drop for SecBox<T> where T: Sized + Copy {
-    fn drop(&mut self) {
-        self.zero_out();
-        memlock::munlock(self, std::mem::size_of::<T>());
+        // Deallocate only non-zero-sized types, because otherwise it's UB
+        if std::mem::size_of::<T>() != 0 {
+            // Safety:
+            // This way to manually deallocate is advertised in the documentation of `Box::into_raw`.
+            // The box was allocated with the global allocator and a layout of `T` and is thus
+            // deallocated using the same allocator and layout here.
+            unsafe { std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::new::<T>()) };
+        }
     }
 }
 
 // Constant time comparison
 impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
     fn eq(&self, other: &SecBox<T>) -> bool {
-        mem::cmp(box_as_slice(&self.content), box_as_slice(&other.content))
+        mem::cmp(box_as_slice(self.content.as_ref().unwrap()), box_as_slice(other.content.as_ref().unwrap()))
     }
 }
 
@@ -534,7 +577,7 @@ impl<T> fmt::Display for SecBox<T> where T: Sized + Copy {
 #[cfg(feature = "libsodium-sys")]
 impl<T> std::hash::Hash for SecBox<T> where T: Sized + Copy {
     fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
-        mem::hash(box_as_slice(&self.content), state);
+        mem::hash(box_as_slice(self.content.as_ref().unwrap()), state);
     }
 }
 
@@ -542,7 +585,7 @@ impl<T> std::hash::Hash for SecBox<T> where T: Sized + Copy {
 
 #[cfg(test)]
 mod tests {
-    use super::{SecBox, SecStr, SecVec};
+    use super::{SecBox, SecStr, SecVec, zero_out_secbox};
 
     #[test]
     fn test_basic() {
@@ -656,6 +699,10 @@ mod tests {
         0x87, 0x90, 0x21, 0xb9, 0x6b, 0xb4, 0xbf, 0x59];
 
     #[test]
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     fn test_secbox() {
         let key_1 = SecBox::new(Box::new(PRIVATE_KEY_1));
         let key_2 = SecBox::new(Box::new(PRIVATE_KEY_2));
@@ -666,7 +713,14 @@ mod tests {
         assert!(key_1 == key_3);
 
         let mut final_key = key_1.clone();
-        final_key.zero_out();
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            assure(
+                "an all-zero byte-pattern is a valid value of `T`",
+                reason = "`T` is `i32`, for which an all-zero byte-pattern is valid"
+            )
+        )]
+        unsafe { zero_out_secbox(&mut final_key) };
         assert_eq!(final_key.unsecure(), &[0; 32]);
     }
 
