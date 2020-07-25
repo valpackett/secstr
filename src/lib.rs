@@ -1,4 +1,7 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
+extern crate core; // Needed by pre
+#[cfg(any(test, feature = "pre"))]
+extern crate pre;
 #[cfg(feature = "serde")] extern crate serde;
 use std::fmt;
 use std::borrow::{Borrow, BorrowMut};
@@ -36,10 +39,14 @@ mod mem {
     use std;
     use ::size_of;
 
-    pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
-        unsafe {
-            sodium::sodium_memzero(slice.as_ptr() as *mut _, size_of(slice));
-        }
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre(valid_ptr(ptr, w)),
+        pre::pre("`ptr` points to a single allocation that is valid for at least `count` bytes"),
+        pre::pre(count <= std::isize::MAX as usize)
+    )]
+    pub unsafe fn zero(ptr: *mut u8, count: usize) {
+        sodium::sodium_memzero(ptr as *mut _, count);
     }
 
     pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
@@ -84,13 +91,46 @@ mod mem {
 
     use ::size_of;
 
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre(valid_ptr(ptr, w)),
+        pre::pre("`ptr` points to a single allocation that is valid for at least `count` bytes"),
+        pre::pre(count <= std::isize::MAX as usize)
+    )]
     #[inline(never)]
-    pub fn zero<T: Sized + Copy>(slice: &mut [T]) {
-        let ptr = slice.as_mut_ptr() as *mut u8;
-        for i in 0 .. size_of(slice) {
-            unsafe {
-                std::ptr::write_volatile(ptr.offset(i as isize), 0);
-            }
+    pub unsafe fn zero(ptr: *mut u8, count: usize) {
+        for i in 0 .. count {
+            #[cfg_attr(
+                any(test, feature = "pre"),
+                forward(impl pre::std::mut_pointer),
+                assure(
+                    "the starting and the resulting pointer are in bounds of the same allocated object",
+                    reason = "this is guaranteed by the precondition to this function"
+                ),
+                assure(
+                    "the computed offset, in bytes, does not overflow an `isize`",
+                    reason = "`computed offset <= count <= isize::MAX`"
+                ),
+                assure(
+                    "performing the offset does not result in overflow",
+                    reason = "a single allocation does not rely on overflow to index all elements and `i as isize >= 0`"
+                )
+            )]
+            let offset_ptr = ptr.offset(i as isize);
+
+            #[cfg_attr(
+                any(test, feature = "pre"),
+                forward(pre),
+                assure(
+                    valid_ptr(dst, w),
+                    reason = "the call to offset above produced a valid pointer into the allocation"
+                ),
+                assure(
+                    proper_align(dst),
+                    reason = "`align_of::<*mut u8>() == 1` and any pointer has an alignment of `1`"
+                )
+            )]
+            std::ptr::write_volatile(offset_ptr, 0);
         }
     }
 
@@ -264,8 +304,27 @@ impl<T> SecVec<T> where T: Sized + Copy {
     }
 
     /// Overwrite the string with zeros. This is automatically called in the destructor.
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     pub fn zero_out(&mut self) {
-        mem::zero(&mut self.content);
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            assure(
+                valid_ptr(ptr, w),
+                reason = "the vector is a valid pointer or has length zero and any pointer is valid for zero bytes"
+            ),
+            assure(
+                "`ptr` points to a single allocation that is valid for at least `count` bytes",
+                reason = "a vector always points to a single allocation and `count` is the size of the allocation in bytes"
+            ),
+            assure(
+                count <= std::isize::MAX as usize,
+                reason = "a vector never allocates more than `isize::MAX` elements"
+            )
+        )]
+        unsafe { mem::zero(self.content.as_mut_ptr() as *mut u8, self.content.len() * std::mem::size_of::<T>()) };
     }
 }
 
@@ -386,8 +445,27 @@ impl<T> SecBox<T> where T: Sized + Copy {
     }
 
     /// Overwrite the string with zeros. This is automatically called in the destructor.
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     pub fn zero_out(&mut self) {
-        mem::zero(box_as_slice_mut(&mut self.content));
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            assure(
+                valid_ptr(ptr, w),
+                reason = "`ptr` comes from a valid box, which is guaranteed to be a valid pointer"
+            ),
+            assure(
+                "`ptr` points to a single allocation that is valid for at least `count` bytes",
+                reason = "a `Box<T>` points to an allocation of at least `mem::size_of::<T>()` bytes"
+            ),
+            assure(
+                count <= std::isize::MAX as usize,
+                reason = "`mem::size_of::<T>()` cannot return a value larger than `isize::MAX`"
+            )
+        )]
+        unsafe { mem::zero(&mut *self.content as *mut T as *mut u8, std::mem::size_of::<T>()) };
     }
 }
 
