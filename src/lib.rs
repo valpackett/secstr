@@ -24,13 +24,6 @@ fn box_as_slice<T: Sized>(reference: &Box<T>) -> &[T] {
     std::slice::from_ref(reference)
 }
 
-/**
- * Create a slice reference from the given box reference
- */
-fn box_as_slice_mut<T: Sized + Copy>(reference: &mut Box<T>) -> &mut [T] {
-    std::slice::from_mut(reference)
-}
-
 
 
 #[cfg(feature = "libsodium-sys")]
@@ -160,37 +153,37 @@ mod mem {
 mod memlock {
     extern crate libc;
 
-    use ::size_of;
-
-    pub fn mlock<T: Sized>(cont: &[T]) {
+    pub fn mlock<T: Sized>(cont: *mut T, count: usize) {
+        let byte_num = count * std::mem::size_of::<T>();
         unsafe {
-            let ptr = cont.as_ptr() as *mut libc::c_void;
-            libc::mlock(ptr, size_of(cont));
+            let ptr = cont as *mut libc::c_void;
+            libc::mlock(ptr, byte_num);
             #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
-            libc::madvise(ptr, size_of(cont), libc::MADV_NOCORE);
+            libc::madvise(ptr, byte_num, libc::MADV_NOCORE);
             #[cfg(target_os = "linux")]
-            libc::madvise(ptr, size_of(cont), libc::MADV_DONTDUMP);
+            libc::madvise(ptr, byte_num, libc::MADV_DONTDUMP);
         }
     }
 
-    pub fn munlock<T: Sized>(cont: &[T]) {
+    pub fn munlock<T: Sized>(cont: *mut T, count: usize) {
+        let byte_num = count * std::mem::size_of::<T>();
         unsafe {
-            let ptr = cont.as_ptr() as *mut libc::c_void;
-            libc::munlock(ptr, size_of(cont));
+            let ptr = cont as *mut libc::c_void;
+            libc::munlock(ptr, byte_num);
             #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
-            libc::madvise(ptr, size_of(cont), libc::MADV_CORE);
+            libc::madvise(ptr, byte_num, libc::MADV_CORE);
             #[cfg(target_os = "linux")]
-            libc::madvise(ptr, size_of(cont), libc::MADV_DODUMP);
+            libc::madvise(ptr, byte_num, libc::MADV_DODUMP);
         }
     }
 }
 
 #[cfg(not(unix))]
 mod memlock {
-    pub fn mlock<T: Sized>(cont: &[T]) {
+    pub fn mlock<T: Sized>(cont: *mut T, count: usize) {
     }
 
-    pub fn munlock<T: Sized>(cont: &[T]) {
+    pub fn munlock<T: Sized>(cont: *mut T, count: usize) {
     }
 }
 
@@ -288,8 +281,8 @@ pub struct SecVec<T> where T: Sized + Copy {
 }
 
 impl<T> SecVec<T> where T: Sized + Copy {
-    pub fn new(cont: Vec<T>) -> Self {
-        memlock::mlock(&cont);
+    pub fn new(mut cont: Vec<T>) -> Self {
+        memlock::mlock(cont.as_mut_ptr(), cont.capacity());
         SecVec { content: cont }
     }
 
@@ -361,7 +354,7 @@ impl<T> BorrowMut<[T]> for SecVec<T> where T: Sized + Copy {
 impl<T> Drop for SecVec<T> where T: Sized + Copy {
     fn drop(&mut self) {
         self.zero_out();
-        memlock::munlock(&self.content);
+        memlock::munlock(self.content.as_mut_ptr(), self.content.capacity());
     }
 }
 
@@ -429,8 +422,8 @@ pub struct SecBox<T> where T: Sized + Copy {
 }
 
 impl<T> SecBox<T> where T: Sized + Copy {
-    pub fn new(cont: Box<T>) -> Self {
-        memlock::mlock(box_as_slice(&cont));
+    pub fn new(mut cont: Box<T>) -> Self {
+        memlock::mlock(&mut cont, std::mem::size_of::<T>());
         SecBox { content: cont }
     }
 
@@ -494,7 +487,7 @@ impl<T> BorrowMut<T> for SecBox<T> where T: Sized + Copy {
 impl<T> Drop for SecBox<T> where T: Sized + Copy {
     fn drop(&mut self) {
         self.zero_out();
-        memlock::munlock(box_as_slice_mut(&mut self.content));
+        memlock::munlock(self, std::mem::size_of::<T>());
     }
 }
 
