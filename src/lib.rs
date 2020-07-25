@@ -297,11 +297,32 @@ impl<T> SecVec<T> where T: Sized + Copy {
     }
 
     /// Overwrite the string with zeros. This is automatically called in the destructor.
+    ///
+    /// This also sets the length to `0`.
     #[cfg_attr(
         any(test, feature = "pre"),
         pre::pre
     )]
     pub fn zero_out(&mut self) {
+        // We zero the entire capacity, not just the currently initialized capacity
+        let num_bytes = self.content.capacity() * std::mem::size_of::<T>();
+
+        // We can set the length to zero without worrying about dropping, because `T: Copy` and
+        // `Copy` types cannot implement `Drop`.
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            forward(impl pre::std::vec::Vec),
+            assure(
+                new_len <= self.capacity(),
+                reason = "`0` is smaller or equal to any `usize` and `self.capacity()` is a `usize`"
+            ),
+            assure(
+                "the elements at `old_len..new_len` are initialized",
+                reason = "`new_len <= old_len`, so `old_len..new_len` is an empty range"
+            )
+        )]
+        unsafe { self.content.set_len(0) };
+
         #[cfg_attr(
             any(test, feature = "pre"),
             assure(
@@ -317,7 +338,7 @@ impl<T> SecVec<T> where T: Sized + Copy {
                 reason = "a vector never allocates more than `isize::MAX` elements"
             )
         )]
-        unsafe { mem::zero(self.content.as_mut_ptr() as *mut u8, self.content.len() * std::mem::size_of::<T>()) };
+        unsafe { mem::zero(self.content.as_mut_ptr() as *mut u8, num_bytes) };
     }
 }
 
@@ -531,9 +552,28 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     fn test_zero_out() {
         let mut my_sec = SecStr::from("hello");
         my_sec.zero_out();
+        // `zero_out` sets the `len` to 0, here we reset it to check that the bytes were zeroed
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            forward(impl pre::std::vec::Vec),
+            assure(
+                new_len <= self.capacity(),
+                reason = "the call to `zero_out` did not reduce the capacity and the length was `5` before,
+                so the capacity must be greater or equal to `5`"
+            ),
+            assure(
+                "the elements at `old_len..new_len` are initialized",
+                reason = "they were initialized to `0` by the call to `zero_out`"
+            )
+        )]
+        unsafe { my_sec.content.set_len(5) }
         assert_eq!(my_sec.unsecure(), b"\x00\x00\x00\x00\x00");
     }
 
@@ -572,6 +612,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     fn test_comparison_zero_out_mb() {
         let mbstring1 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
         let mbstring2 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
@@ -581,6 +625,21 @@ mod tests {
 
         let mut mbstring = mbstring1.clone();
         mbstring.zero_out();
+        // `zero_out` sets the `len` to 0, here we reset it to check that the bytes were zeroed
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            forward(impl pre::std::vec::Vec),
+            assure(
+                new_len <= self.capacity(),
+                reason = "the call to `zero_out` did not reduce the capacity and the length was `8` before,
+                so the capacity must be greater or equal to `8`"
+            ),
+            assure(
+                "the elements at `old_len..new_len` are initialized",
+                reason = "they were initialized to `0` by the call to `zero_out`"
+            )
+        )]
+        unsafe { mbstring.content.set_len(8) }
         assert_eq!(mbstring.unsecure(), &['\0','\0','\0','\0','\0','\0','\0','\0']);
     }
 
