@@ -16,6 +16,7 @@ Featuring:
 - formatting as `***SECRET***` to prevent leaking into logs
 - (optionally) using libsodium (through [sodiumoxide]'s [libsodium-sys]) for zeroing, comparison, and hashing (`std::hash::Hash`)
 - (optionally) de/serializable into anything [Serde] supports as a byte string
+- (optionally) compile-time checked [preconditions] for the public `unsafe` API
 
 [Rust]: https://www.rust-lang.org
 [securemem]: https://hackage.haskell.org/package/securemem
@@ -23,6 +24,7 @@ Featuring:
 [sodiumoxide]: https://crates.io/crates/sodiumoxide
 [libsodium-sys]: https://crates.io/crates/libsodium-sys
 [Serde]: https://serde.rs/
+[preconditions]: https://crates.io/crates/pre
 
 ## Usage
 
