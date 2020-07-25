@@ -160,6 +160,10 @@ mod mem {
     }
 
     #[inline(never)]
+    #[cfg_attr(
+        any(test, feature = "pre"),
+        pre::pre
+    )]
     pub fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
         if us.len() != them.len() {
             return false;
@@ -170,9 +174,97 @@ mod mem {
         let ptr_us   = us.as_ptr()   as *mut u8;
         let ptr_them = them.as_ptr() as *mut u8;
         for i in 0 .. size_of(us) {
-            unsafe {
-                result |= *(ptr_us.offset(i as isize)) ^ *(ptr_them.offset(i as isize));
-            }
+            let us_val = unsafe {
+                #[cfg_attr(
+                    any(test, feature = "pre"),
+                    forward(impl pre::std::const_pointer),
+                    assure(
+                        "the starting and the resulting pointer are in bounds of the same allocated object",
+                        reason = "`ptr_us` points to the start of `us`, which is a single allocated object of size
+                        `size_of(us)` and `i` is in `0..size_of(us)` and thus only moves the pointer within
+                        the allocated object"
+                    ),
+                    assure(
+                        "the computed offset, in bytes, does not overflow an `isize`",
+                        reason = "no slice can be larger than `isize::MAX` bytes"
+                    ),
+                    assure(
+                        "performing the offset does not result in overflow",
+                        reason = "a single allocation does not rely on overflow to index all elements and `i as isize >= 0`"
+                    )
+                )]
+                let ptr = ptr_us.offset(i as isize);
+                #[cfg_attr(
+                    any(test, feature = "pre"),
+                    forward(pre),
+                    assure(
+                        valid_ptr(src, r),
+                        reason = "`ptr` points to an offset within the slice, which is a valid pointer for reads"
+                    ),
+                    assure(
+                        proper_align(src),
+                        reason = "`T` is `u8`, which has an alignment of `1`, which every pointer has"
+                    ),
+                    assure(
+                        "`src` points to a properly initialized value of type `T`",
+                        reason = "this is technically undefined behavior, because `T` may contain padding bytes,
+                        which are not guaranteed to be initialized.
+                        Without more information about `T`, it is pretty much impossible to avoid this though
+                        and it this has no UB for types without padding bytes."
+                    ),
+                    assure(
+                        "`T` is `Copy` or the value at `*src` isn't used after this call",
+                        reason = "`T: Copy`"
+                    )
+                )]
+                std::ptr::read_volatile(ptr)
+            };
+            let them_val = unsafe {
+                #[cfg_attr(
+                    any(test, feature = "pre"),
+                    forward(impl pre::std::const_pointer),
+                    assure(
+                        "the starting and the resulting pointer are in bounds of the same allocated object",
+                        reason = "`ptr_them` points to the start of `them`, which is a single allocated object of size
+                        `size_of(us)` (because `us.len() == them.len()` and `i` is in `0..size_of(us)` and thus only
+                        moves the pointer within the allocated object"
+                    ),
+                    assure(
+                        "the computed offset, in bytes, does not overflow an `isize`",
+                        reason = "no slice can be larger than `isize::MAX` bytes"
+                    ),
+                    assure(
+                        "performing the offset does not result in overflow",
+                        reason = "a single allocation does not rely on overflow to index all elements and `i as isize >= 0`"
+                    )
+                )]
+                let ptr = ptr_them.offset(i as isize);
+                #[cfg_attr(
+                    any(test, feature = "pre"),
+                    forward(pre),
+                    assure(
+                        valid_ptr(src, r),
+                        reason = "`ptr` points to an offset within the slice, which is a valid pointer for reads"
+                    ),
+                    assure(
+                        proper_align(src),
+                        reason = "`T` is `u8`, which has an alignment of `1`, which every pointer has"
+                    ),
+                    assure(
+                        "`src` points to a properly initialized value of type `T`",
+                        reason = "this is technically undefined behavior, because `T` may contain padding bytes,
+                        which are not guaranteed to be initialized.
+                        Without more information about `T`, it is pretty much impossible to avoid this though
+                        and it this has no UB for types without padding bytes."
+                    ),
+                    assure(
+                        "`T` is `Copy` or the value at `*src` isn't used after this call",
+                        reason = "`T: Copy`"
+                    )
+                )]
+                std::ptr::read_volatile(ptr)
+            };
+            result |= us_val ^ them_val;
         }
 
         result == 0
@@ -332,6 +424,8 @@ impl<'de> serde::Deserialize<'de> for SecUtf8 {
 /// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`
 /// - Automatic `mlock` to protect against leaking into swap (any unix)
 /// - Automatic `madvise(MADV_NOCORE/MADV_DONTDUMP)` to protect against leaking into core dumps (FreeBSD, DragonflyBSD, Linux)
+///
+/// Comparisons using the `PartialEq` implementation are undefined behavior (and most likely wrong) if `T` has any padding bytes.
 ///
 /// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.
 /// Use `SecStr::new` if you have a `Vec<u8>`.
@@ -497,6 +591,15 @@ impl Serialize for SecVec<u8> {
 }
 
 
+/// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:
+///
+/// - Automatic zeroing in `Drop`
+/// - Constant time comparison in `PartialEq` (does not short circuit on the first different character; but terminates instantly if strings have different length)
+/// - Outputting `***SECRET***` to prevent leaking secrets into logs in `fmt::Debug` and `fmt::Display`
+/// - Automatic `mlock` to protect against leaking into swap (any unix)
+/// - Automatic `madvise(MADV_NOCORE/MADV_DONTDUMP)` to protect against leaking into core dumps (FreeBSD, DragonflyBSD, Linux)
+///
+/// Comparisons using the `PartialEq` implementation are undefined behavior (and most likely wrong) if `T` has any padding bytes.
 #[derive(Clone, Eq)]
 pub struct SecBox<T> where T: Sized + Copy {
     // This is an `Option` to avoid UB in the destructor, outside the destructor, it is always
