@@ -1,9 +1,10 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
-use std::fmt;
+#[cfg(feature = "serde")]
+use serde::de::{self, Deserialize, Deserializer, Visitor};
+#[cfg(feature = "serde")]
+use serde::ser::{Serialize, Serializer};
 use std::borrow::{Borrow, BorrowMut};
-#[cfg(feature = "serde")] use serde::ser::{Serialize, Serializer};
-#[cfg(feature = "serde")] use serde::de::{self, Deserialize, Deserializer, Visitor};
-
+use std::fmt;
 
 /**
  * Obtain the number of bytes stored in the given byte slice
@@ -21,13 +22,11 @@ fn box_as_slice<T: Sized>(reference: &Box<T>) -> &[T] {
     std::slice::from_ref(reference)
 }
 
-
-
 #[cfg(feature = "libsodium-sys")]
 mod mem {
     extern crate libsodium_sys as sodium;
-    use std;
     use crate::size_of;
+    use std;
 
     #[cfg_attr(
         any(test, feature = "pre"),
@@ -57,15 +56,18 @@ mod mem {
         sodium::sodium_memcmp(us as *const _, them as *const _, them_len) == 0
     }
 
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
-    pub fn hash<T: Sized + Copy, H>(slice: &[T], state: &mut H) where H: std::hash::Hasher {
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
+    pub fn hash<T: Sized + Copy, H>(slice: &[T], state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
         // Hash the private data
         let mut hash = [0u8; sodium::crypto_hash_BYTES as _];
         unsafe {
-            assert_eq!(sodium::crypto_hash(&mut hash[0] as *mut _, slice.as_ptr() as *const _, size_of(slice) as u64), 0);
+            assert_eq!(
+                sodium::crypto_hash(&mut hash[0] as *mut _, slice.as_ptr() as *const _, size_of(slice) as u64),
+                0
+            );
         };
 
         // Hash again with the current internal state of the outer hasher added as "salt" (will include a per-thread random value for the default SipHasher)
@@ -107,7 +109,10 @@ mod mem {
 
         let mut hash2 = [0u8; sodium::crypto_hash_BYTES as _];
         unsafe {
-            assert_eq!(sodium::crypto_hash(&mut hash2[0] as *mut _, round2.as_ptr(), round2.len() as u64), 0);
+            assert_eq!(
+                sodium::crypto_hash(&mut hash2[0] as *mut _, round2.as_ptr(), round2.len() as u64),
+                0
+            );
         };
 
         // Use this final value as state
@@ -127,7 +132,7 @@ mod mem {
     )]
     #[inline(never)]
     pub unsafe fn zero(ptr: *mut u8, count: usize) {
-        for i in 0 .. count {
+        for i in 0..count {
             #[cfg_attr(
                 any(test, feature = "pre"),
                 forward(impl pre::std::mut_pointer),
@@ -179,7 +184,7 @@ mod mem {
 
         let mut result: u8 = 0;
 
-        for i in 0 .. us_len {
+        for i in 0..us_len {
             let us_val = {
                 #[cfg_attr(
                     any(test, feature = "pre"),
@@ -213,10 +218,7 @@ mod mem {
                         "`src` points to a properly initialized value of type `T`",
                         reason = "`ptr` points to the object as `us`, which contains initialized `u8` values"
                     ),
-                    assure(
-                        "`T` is `Copy` or the value at `*src` isn't used after this call",
-                        reason = "`u8: Copy`"
-                    )
+                    assure("`T` is `Copy` or the value at `*src` isn't used after this call", reason = "`u8: Copy`")
                 )]
                 std::ptr::read_volatile(ptr)
             };
@@ -253,10 +255,7 @@ mod mem {
                         "`src` points to a properly initialized value of type `T`",
                         reason = "`ptr` points to the object as `them`, which contains initialized `u8` values"
                     ),
-                    assure(
-                        "`T` is `Copy` or the value at `*src` isn't used after this call",
-                        reason = "`u8: Copy`"
-                    )
+                    assure("`T` is `Copy` or the value at `*src` isn't used after this call", reason = "`u8: Copy`")
                 )]
                 std::ptr::read_volatile(ptr)
             };
@@ -266,8 +265,6 @@ mod mem {
         result == 0
     }
 }
-
-
 
 #[cfg(unix)]
 mod memlock {
@@ -300,11 +297,9 @@ mod memlock {
 
 #[cfg(not(unix))]
 mod memlock {
-    pub fn mlock<T: Sized>(cont: *mut T, count: usize) {
-    }
+    pub fn mlock<T: Sized>(cont: *mut T, count: usize) {}
 
-    pub fn munlock<T: Sized>(cont: *mut T, count: usize) {
-    }
+    pub fn munlock<T: Sized>(cont: *mut T, count: usize) {}
 }
 
 mod private {
@@ -349,8 +344,6 @@ impl_no_paddding_bytes_array! {
     31, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192
 }
 
-
-
 /// Type alias for a vector that stores just bytes
 pub type SecStr = SecVec<u8>;
 
@@ -359,10 +352,7 @@ pub type SecStr = SecVec<u8>;
 pub struct SecUtf8(SecVec<u8>);
 
 impl SecUtf8 {
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     pub fn unsecure(&self) -> &str {
         #[cfg_attr(
             any(test, feature = "pre"),
@@ -374,13 +364,12 @@ impl SecUtf8 {
                 be valid UTF-8 here"
             )
         )]
-        unsafe { std::str::from_utf8_unchecked(self.0.unsecure())}
+        unsafe {
+            std::str::from_utf8_unchecked(self.0.unsecure())
+        }
     }
 
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     pub fn into_unsecure(mut self) -> String {
         let content = std::mem::replace(&mut self.0.content, Vec::new());
         #[cfg_attr(
@@ -393,7 +382,9 @@ impl SecUtf8 {
                 be valid UTF-8 here"
             )
         )]
-        unsafe { String::from_utf8_unchecked(content) }
+        unsafe {
+            String::from_utf8_unchecked(content)
+        }
     }
 }
 
@@ -406,17 +397,20 @@ impl PartialEq for SecUtf8 {
 
 impl fmt::Debug for SecUtf8 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+        f.write_str("***SECRET***").map_err(|_| fmt::Error)
     }
 }
 
 impl fmt::Display for SecUtf8 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+        f.write_str("***SECRET***").map_err(|_| fmt::Error)
     }
 }
 
-impl<U> From<U> for SecUtf8 where U: Into<String> {
+impl<U> From<U> for SecUtf8
+where
+    U: Into<String>,
+{
     fn from(s: U) -> SecUtf8 {
         SecUtf8(SecVec::new(s.into().into_bytes()))
     }
@@ -468,11 +462,17 @@ impl<'de> serde::Deserialize<'de> for SecUtf8 {
 /// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.
 /// Use `SecStr::new` if you have a `Vec<u8>`.
 #[derive(Clone)]
-pub struct SecVec<T> where T: Sized + Copy {
-    content: Vec<T>
+pub struct SecVec<T>
+where
+    T: Sized + Copy,
+{
+    content: Vec<T>,
 }
 
-impl<T> SecVec<T> where T: Sized + Copy {
+impl<T> SecVec<T>
+where
+    T: Sized + Copy,
+{
     pub fn new(mut cont: Vec<T>) -> Self {
         memlock::mlock(cont.as_mut_ptr(), cont.capacity());
         SecVec { content: cont }
@@ -491,10 +491,7 @@ impl<T> SecVec<T> where T: Sized + Copy {
     /// Overwrite the string with zeros. This is automatically called in the destructor.
     ///
     /// This also sets the length to `0`.
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     pub fn zero_out(&mut self) {
         // We zero the entire capacity, not just the currently initialized capacity
         let num_bytes = self.content.capacity() * std::mem::size_of::<T>();
@@ -513,7 +510,9 @@ impl<T> SecVec<T> where T: Sized + Copy {
                 reason = "`new_len <= old_len`, so `old_len..new_len` is an empty range"
             )
         )]
-        unsafe { self.content.set_len(0) };
+        unsafe {
+            self.content.set_len(0)
+        };
 
         #[cfg_attr(
             any(test, feature = "pre"),
@@ -530,19 +529,29 @@ impl<T> SecVec<T> where T: Sized + Copy {
                 reason = "a vector never allocates more than `isize::MAX` elements"
             )
         )]
-        unsafe { mem::zero(self.content.as_mut_ptr() as *mut u8, num_bytes) };
+        unsafe {
+            mem::zero(self.content.as_mut_ptr() as *mut u8, num_bytes)
+        };
     }
 }
 
 // Creation
-impl<T, U> From<U> for SecVec<T> where U: Into<Vec<T>>, T: Sized + Copy {
+impl<T, U> From<U> for SecVec<T>
+where
+    U: Into<Vec<T>>,
+    T: Sized + Copy,
+{
     fn from(s: U) -> SecVec<T> {
         SecVec::new(s.into())
     }
 }
 
 // Vec item indexing
-impl<T, U> std::ops::Index<U> for SecVec<T> where T: Sized + Copy, Vec<T>: std::ops::Index<U> {
+impl<T, U> std::ops::Index<U> for SecVec<T>
+where
+    T: Sized + Copy,
+    Vec<T>: std::ops::Index<U>,
+{
     type Output = <Vec<T> as std::ops::Index<U>>::Output;
 
     fn index(&self, index: U) -> &Self::Output {
@@ -551,20 +560,29 @@ impl<T, U> std::ops::Index<U> for SecVec<T> where T: Sized + Copy, Vec<T>: std::
 }
 
 // Borrowing
-impl<T> Borrow<[T]> for SecVec<T> where T: Sized + Copy {
+impl<T> Borrow<[T]> for SecVec<T>
+where
+    T: Sized + Copy,
+{
     fn borrow(&self) -> &[T] {
         self.content.borrow()
     }
 }
 
-impl<T> BorrowMut<[T]> for SecVec<T> where T: Sized + Copy {
+impl<T> BorrowMut<[T]> for SecVec<T>
+where
+    T: Sized + Copy,
+{
     fn borrow_mut(&mut self) -> &mut [T] {
         self.content.borrow_mut()
     }
 }
 
 // Overwrite memory with zeros when we're done
-impl<T> Drop for SecVec<T> where T: Sized + Copy {
+impl<T> Drop for SecVec<T>
+where
+    T: Sized + Copy,
+{
     fn drop(&mut self) {
         self.zero_out();
         memlock::munlock(self.content.as_mut_ptr(), self.content.capacity());
@@ -572,11 +590,11 @@ impl<T> Drop for SecVec<T> where T: Sized + Copy {
 }
 
 // Constant time comparison
-impl<T> PartialEq for SecVec<T> where T: Sized + Copy + NoPaddingBytes {
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+impl<T> PartialEq for SecVec<T>
+where
+    T: Sized + Copy + NoPaddingBytes,
+{
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     fn eq(&self, other: &SecVec<T>) -> bool {
         #[cfg_attr(
             any(test, feature = "pre"),
@@ -614,7 +632,7 @@ impl<T> PartialEq for SecVec<T> where T: Sized + Copy + NoPaddingBytes {
                 self.content.as_ptr() as *const u8,
                 self.content.len() * std::mem::size_of::<T>(),
                 other.content.as_ptr() as *const u8,
-                other.content.len() * std::mem::size_of::<T>()
+                other.content.len() * std::mem::size_of::<T>(),
             )
         }
     }
@@ -623,15 +641,21 @@ impl<T> PartialEq for SecVec<T> where T: Sized + Copy + NoPaddingBytes {
 impl<T> Eq for SecVec<T> where T: Sized + Copy + NoPaddingBytes {}
 
 // Make sure sensitive information is not logged accidentally
-impl<T> fmt::Debug for SecVec<T> where T: Sized + Copy {
+impl<T> fmt::Debug for SecVec<T>
+where
+    T: Sized + Copy,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+        f.write_str("***SECRET***").map_err(|_| fmt::Error)
     }
 }
 
-impl<T> fmt::Display for SecVec<T> where T: Sized + Copy {
+impl<T> fmt::Display for SecVec<T>
+where
+    T: Sized + Copy,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+        f.write_str("***SECRET***").map_err(|_| fmt::Error)
     }
 }
 
@@ -646,32 +670,46 @@ impl<'de> Visitor<'de> for BytesVisitor {
         formatter.write_str("a byte array")
     }
 
-    fn visit_bytes<E>(self, value: &[u8]) -> Result<SecVec<u8>, E> where E: de::Error {
+    fn visit_bytes<E>(self, value: &[u8]) -> Result<SecVec<u8>, E>
+    where
+        E: de::Error,
+    {
         Ok(SecStr::from(value))
     }
 }
 
 #[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for SecVec<u8> {
-    fn deserialize<D>(deserializer: D) -> Result<SecVec<u8>, D::Error> where D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<SecVec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         deserializer.deserialize_bytes(BytesVisitor)
     }
 }
 
 #[cfg(feature = "libsodium-sys")]
-impl<T> std::hash::Hash for SecVec<T> where T: Sized + Copy {
-    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+impl<T> std::hash::Hash for SecVec<T>
+where
+    T: Sized + Copy,
+{
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
         mem::hash(&self.content, state);
     }
 }
 
 #[cfg(feature = "serde")]
 impl Serialize for SecVec<u8> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_bytes(self.content.borrow())
     }
 }
-
 
 /// A data type suitable for storing sensitive information such as passwords and private keys in memory, that implements:
 ///
@@ -683,13 +721,19 @@ impl Serialize for SecVec<u8> {
 ///
 /// Comparisons using the `PartialEq` implementation are undefined behavior (and most likely wrong) if `T` has any padding bytes.
 #[derive(Clone)]
-pub struct SecBox<T> where T: Sized + Copy {
+pub struct SecBox<T>
+where
+    T: Sized + Copy,
+{
     // This is an `Option` to avoid UB in the destructor, outside the destructor, it is always
     // `Some(_)`
-    content: Option<Box<T>>
+    content: Option<Box<T>>,
 }
 
-impl<T> SecBox<T> where T: Sized + Copy {
+impl<T> SecBox<T>
+where
+    T: Sized + Copy,
+{
     pub fn new(mut cont: Box<T>) -> Self {
         memlock::mlock(&mut cont, std::mem::size_of::<T>());
         SecBox { content: Some(cont) }
@@ -711,11 +755,11 @@ impl<T> SecBox<T> where T: Sized + Copy {
 /// # Safety
 /// An all-zero byte-pattern must be a valid value of `T` in order for this function call to not be
 /// undefined behavior.
-#[cfg_attr(
-    any(test, feature = "pre"),
-    pre::pre("an all-zero byte-pattern is a valid value of `T`")
-)]
-pub unsafe fn zero_out_secbox<T>(secbox: &mut SecBox<T>) where T: Sized + Copy {
+#[cfg_attr(any(test, feature = "pre"), pre::pre("an all-zero byte-pattern is a valid value of `T`"))]
+pub unsafe fn zero_out_secbox<T>(secbox: &mut SecBox<T>)
+where
+    T: Sized + Copy,
+{
     #[cfg_attr(
         any(test, feature = "pre"),
         assure(
@@ -731,11 +775,17 @@ pub unsafe fn zero_out_secbox<T>(secbox: &mut SecBox<T>) where T: Sized + Copy {
             reason = "`mem::size_of::<T>()` cannot return a value larger than `isize::MAX`"
         )
     )]
-    mem::zero(&mut **secbox.content.as_mut().unwrap() as *mut T as *mut u8, std::mem::size_of::<T>());
+    mem::zero(
+        &mut **secbox.content.as_mut().unwrap() as *mut T as *mut u8,
+        std::mem::size_of::<T>(),
+    );
 }
 
 // Delegate indexing
-impl<T, U> std::ops::Index<U> for SecBox<T> where T: std::ops::Index<U> + Sized + Copy {
+impl<T, U> std::ops::Index<U> for SecBox<T>
+where
+    T: std::ops::Index<U> + Sized + Copy,
+{
     type Output = <T as std::ops::Index<U>>::Output;
 
     fn index(&self, index: U) -> &Self::Output {
@@ -744,23 +794,29 @@ impl<T, U> std::ops::Index<U> for SecBox<T> where T: std::ops::Index<U> + Sized 
 }
 
 // Borrowing
-impl<T> Borrow<T> for SecBox<T> where T: Sized + Copy {
+impl<T> Borrow<T> for SecBox<T>
+where
+    T: Sized + Copy,
+{
     fn borrow(&self) -> &T {
         self.content.as_ref().unwrap()
     }
 }
-impl<T> BorrowMut<T> for SecBox<T> where T: Sized + Copy {
+impl<T> BorrowMut<T> for SecBox<T>
+where
+    T: Sized + Copy,
+{
     fn borrow_mut(&mut self) -> &mut T {
         self.content.as_mut().unwrap()
     }
 }
 
 // Overwrite memory with zeros when we're done
-impl<T> Drop for SecBox<T> where T: Sized + Copy {
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+impl<T> Drop for SecBox<T>
+where
+    T: Sized + Copy,
+{
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     fn drop(&mut self) {
         // Make sure that the box does not need to be dropped after this function, because it may
         // see an invalid type, if `T` does not support an all-zero byte-pattern
@@ -786,7 +842,9 @@ impl<T> Drop for SecBox<T> where T: Sized + Copy {
                 reason = "`mem::size_of::<T>()` cannot return a value larger than `isize::MAX`"
             )
         )]
-        unsafe { mem::zero(ptr as *mut u8, std::mem::size_of::<T>()) };
+        unsafe {
+            mem::zero(ptr as *mut u8, std::mem::size_of::<T>())
+        };
         memlock::munlock(ptr, std::mem::size_of::<T>());
 
         // Deallocate only non-zero-sized types, because otherwise it's UB
@@ -801,11 +859,11 @@ impl<T> Drop for SecBox<T> where T: Sized + Copy {
 }
 
 // Constant time comparison
-impl<T> PartialEq for SecBox<T> where T: Sized + Copy + NoPaddingBytes {
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+impl<T> PartialEq for SecBox<T>
+where
+    T: Sized + Copy + NoPaddingBytes,
+{
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     fn eq(&self, other: &SecBox<T>) -> bool {
         #[cfg_attr(
             any(test, feature = "pre"),
@@ -843,7 +901,7 @@ impl<T> PartialEq for SecBox<T> where T: Sized + Copy + NoPaddingBytes {
                 &**self.content.as_ref().unwrap() as *const T as *const u8,
                 std::mem::size_of::<T>(),
                 &**other.content.as_ref().unwrap() as *const T as *const u8,
-                std::mem::size_of::<T>()
+                std::mem::size_of::<T>(),
             )
         }
     }
@@ -852,29 +910,39 @@ impl<T> PartialEq for SecBox<T> where T: Sized + Copy + NoPaddingBytes {
 impl<T> Eq for SecBox<T> where T: Sized + Copy + NoPaddingBytes {}
 
 // Make sure sensitive information is not logged accidentally
-impl<T> fmt::Debug for SecBox<T> where T: Sized + Copy {
+impl<T> fmt::Debug for SecBox<T>
+where
+    T: Sized + Copy,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+        f.write_str("***SECRET***").map_err(|_| fmt::Error)
     }
 }
-impl<T> fmt::Display for SecBox<T> where T: Sized + Copy {
+impl<T> fmt::Display for SecBox<T>
+where
+    T: Sized + Copy,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("***SECRET***").map_err(|_| { fmt::Error })
+        f.write_str("***SECRET***").map_err(|_| fmt::Error)
     }
 }
 
 #[cfg(feature = "libsodium-sys")]
-impl<T> std::hash::Hash for SecBox<T> where T: Sized + Copy {
-    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+impl<T> std::hash::Hash for SecBox<T>
+where
+    T: Sized + Copy,
+{
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
         mem::hash(box_as_slice(self.content.as_ref().unwrap()), state);
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
-    use super::{SecBox, SecStr, SecVec, zero_out_secbox};
+    use super::{zero_out_secbox, SecBox, SecStr, SecVec};
 
     #[test]
     fn test_basic() {
@@ -884,10 +952,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     fn test_zero_out() {
         let mut my_sec = SecStr::from("hello");
         my_sec.zero_out();
@@ -905,30 +970,32 @@ mod tests {
                 reason = "they were initialized to `0` by the call to `zero_out`"
             )
         )]
-        unsafe { my_sec.content.set_len(5) }
+        unsafe {
+            my_sec.content.set_len(5)
+        }
         assert_eq!(my_sec.unsecure(), b"\x00\x00\x00\x00\x00");
     }
 
     #[test]
     fn test_comparison() {
-        assert_eq!(SecStr::from("hello"),  SecStr::from("hello"));
-        assert!(  SecStr::from("hello") != SecStr::from("yolo"));
-        assert!(  SecStr::from("hello") != SecStr::from("olleh"));
-        assert!(  SecStr::from("hello") != SecStr::from("helloworld"));
-        assert!(  SecStr::from("hello") != SecStr::from(""));
+        assert_eq!(SecStr::from("hello"), SecStr::from("hello"));
+        assert!(SecStr::from("hello") != SecStr::from("yolo"));
+        assert!(SecStr::from("hello") != SecStr::from("olleh"));
+        assert!(SecStr::from("hello") != SecStr::from("helloworld"));
+        assert!(SecStr::from("hello") != SecStr::from(""));
     }
 
     #[test]
     fn test_indexing() {
         let string = SecStr::from("hello");
-        assert_eq!(string[0],       'h' as u8);
-        assert_eq!(&string[3 .. 5], "lo".as_bytes());
+        assert_eq!(string[0], 'h' as u8);
+        assert_eq!(&string[3..5], "lo".as_bytes());
     }
 
     #[test]
     fn test_show() {
         assert_eq!(format!("{:?}", SecStr::from("hello")), "***SECRET***".to_string());
-        assert_eq!(format!("{}",   SecStr::from("hello")), "***SECRET***".to_string());
+        assert_eq!(format!("{}", SecStr::from("hello")), "***SECRET***".to_string());
     }
 
     #[cfg(feature = "libsodium-sys")]
@@ -944,14 +1011,11 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     fn test_comparison_zero_out_mb() {
-        let mbstring1 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
-        let mbstring2 = SecVec::from(vec!['H','a','l','l','o',' ','🦄','!']);
-        let mbstring3 = SecVec::from(vec!['!','🦄',' ','o','l','l','a','H']);
+        let mbstring1 = SecVec::from(vec!['H', 'a', 'l', 'l', 'o', ' ', '🦄', '!']);
+        let mbstring2 = SecVec::from(vec!['H', 'a', 'l', 'l', 'o', ' ', '🦄', '!']);
+        let mbstring3 = SecVec::from(vec!['!', '🦄', ' ', 'o', 'l', 'l', 'a', 'H']);
         assert!(mbstring1 == mbstring2);
         assert!(mbstring1 != mbstring3);
 
@@ -971,27 +1035,24 @@ mod tests {
                 reason = "they were initialized to `0` by the call to `zero_out`"
             )
         )]
-        unsafe { mbstring.content.set_len(8) }
-        assert_eq!(mbstring.unsecure(), &['\0','\0','\0','\0','\0','\0','\0','\0']);
+        unsafe {
+            mbstring.content.set_len(8)
+        }
+        assert_eq!(mbstring.unsecure(), &['\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0']);
     }
 
     const PRIVATE_KEY_1: [u8; 32] = [
-        0xb0, 0x3b, 0x34, 0xc3, 0x3a, 0x1c, 0x44, 0xf2,
-        0x25, 0xb6, 0x62, 0xd2, 0xbf, 0x48, 0x59, 0xb8,
-        0x13, 0x54, 0x11, 0xfa, 0x7b, 0x03, 0x86, 0xd4,
-        0x5f, 0xb7, 0x5d, 0xc5, 0xb9, 0x1b, 0x44, 0x66];
+        0xb0, 0x3b, 0x34, 0xc3, 0x3a, 0x1c, 0x44, 0xf2, 0x25, 0xb6, 0x62, 0xd2, 0xbf, 0x48, 0x59, 0xb8, 0x13, 0x54, 0x11, 0xfa,
+        0x7b, 0x03, 0x86, 0xd4, 0x5f, 0xb7, 0x5d, 0xc5, 0xb9, 0x1b, 0x44, 0x66,
+    ];
 
     const PRIVATE_KEY_2: [u8; 32] = [
-        0xc8, 0x06, 0x43, 0x9d, 0xc9, 0xd2, 0xc4, 0x76,
-        0xff, 0xed, 0x8f, 0x25, 0x80, 0xc0, 0x88, 0x8d,
-        0x58, 0xab, 0x40, 0x6b, 0xf7, 0xae, 0x36, 0x98,
-        0x87, 0x90, 0x21, 0xb9, 0x6b, 0xb4, 0xbf, 0x59];
+        0xc8, 0x06, 0x43, 0x9d, 0xc9, 0xd2, 0xc4, 0x76, 0xff, 0xed, 0x8f, 0x25, 0x80, 0xc0, 0x88, 0x8d, 0x58, 0xab, 0x40, 0x6b,
+        0xf7, 0xae, 0x36, 0x98, 0x87, 0x90, 0x21, 0xb9, 0x6b, 0xb4, 0xbf, 0x59,
+    ];
 
     #[test]
-    #[cfg_attr(
-        any(test, feature = "pre"),
-        pre::pre
-    )]
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     fn test_secbox() {
         let key_1 = SecBox::new(Box::new(PRIVATE_KEY_1));
         let key_2 = SecBox::new(Box::new(PRIVATE_KEY_2));
@@ -1009,19 +1070,20 @@ mod tests {
                 reason = "`T` is `i32`, for which an all-zero byte-pattern is valid"
             )
         )]
-        unsafe { zero_out_secbox(&mut final_key) };
+        unsafe {
+            zero_out_secbox(&mut final_key)
+        };
         assert_eq!(final_key.unsecure(), &[0; 32]);
     }
 
     #[cfg(feature = "serde")]
     #[test]
     fn test_serialization() {
-        use serde_cbor::{to_vec, from_slice};
+        use serde_cbor::{from_slice, to_vec};
         let my_sec = SecStr::from("hello");
         let my_cbor = to_vec(&my_sec).unwrap();
         assert_eq!(my_cbor, b"\x45hello");
         let my_sec2 = from_slice(&my_cbor).unwrap();
         assert_eq!(my_sec, my_sec2);
     }
-
 }
