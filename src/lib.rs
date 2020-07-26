@@ -8,6 +8,7 @@ use std::borrow::{Borrow, BorrowMut};
 /**
  * Obtain the number of bytes stored in the given byte slice
  */
+#[cfg(feature = "libsodium-sys")]
 fn size_of<T: Sized>(slice: &[T]) -> usize {
     slice.len() * std::mem::size_of::<T>()
 }
@@ -15,6 +16,7 @@ fn size_of<T: Sized>(slice: &[T]) -> usize {
 /**
  * Create a slice reference from the given box reference
  */
+#[cfg(feature = "libsodium-sys")]
 fn box_as_slice<T: Sized>(reference: &Box<T>) -> &[T] {
     std::slice::from_ref(reference)
 }
@@ -37,16 +39,22 @@ mod mem {
         sodium::sodium_memzero(ptr as *mut _, count);
     }
 
+    #[inline(never)]
     #[cfg_attr(
         any(test, feature = "pre"),
-        pre::pre("`T` does not have any padding bytes")
+        pre::pre(valid_ptr(us, r)),
+        pre::pre("`us` points to a single allocated object of initialized `u8` values that is valid for `us_len` bytes"),
+        pre::pre(us_len <= isize::MAX as usize),
+        pre::pre(valid_ptr(them, r)),
+        pre::pre("`them` points to a single allocated object of initialized `u8` values that is valid for `them_len` bytes"),
+        pre::pre(them_len <= isize::MAX as usize)
     )]
-    pub unsafe fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
-        if us.len() != them.len() {
+    pub unsafe fn cmp(us: *const u8, us_len: usize, them: *const u8, them_len: usize) -> bool {
+        if us_len != them_len {
             return false;
         }
 
-        sodium::sodium_memcmp(us.as_ptr() as *const _, them.as_ptr() as *const _, size_of(them)) == 0
+        sodium::sodium_memcmp(us as *const _, them as *const _, them_len) == 0
     }
 
     #[cfg_attr(
@@ -111,8 +119,6 @@ mod mem {
 mod mem {
     use std;
 
-    use crate::size_of;
-
     #[cfg_attr(
         any(test, feature = "pre"),
         pre::pre(valid_ptr(ptr, w)),
@@ -159,44 +165,45 @@ mod mem {
     #[inline(never)]
     #[cfg_attr(
         any(test, feature = "pre"),
-        pre::pre("`T` does not have any padding bytes")
+        pre::pre(valid_ptr(us, r)),
+        pre::pre("`us` points to a single allocated object of initialized `u8` values that is valid for `us_len` bytes"),
+        pre::pre(us_len <= isize::MAX as usize),
+        pre::pre(valid_ptr(them, r)),
+        pre::pre("`them` points to a single allocated object of initialized `u8` values that is valid for `them_len` bytes"),
+        pre::pre(them_len <= isize::MAX as usize)
     )]
-    pub unsafe fn cmp<T: Sized + Copy>(us: &[T], them: &[T]) -> bool {
-        if us.len() != them.len() {
+    pub unsafe fn cmp(us: *const u8, us_len: usize, them: *const u8, them_len: usize) -> bool {
+        if us_len != them_len {
             return false;
         }
 
         let mut result: u8 = 0;
 
-        let ptr_us   = us.as_ptr()   as *mut u8;
-        let ptr_them = them.as_ptr() as *mut u8;
-        for i in 0 .. size_of(us) {
+        for i in 0 .. us_len {
             let us_val = {
                 #[cfg_attr(
                     any(test, feature = "pre"),
                     forward(impl pre::std::const_pointer),
                     assure(
                         "the starting and the resulting pointer are in bounds of the same allocated object",
-                        reason = "`ptr_us` points to the start of `us`, which is a single allocated object of size
-                        `size_of(us)` and `i` is in `0..size_of(us)` and thus only moves the pointer within
-                        the allocated object"
+                        reason = "the offset is at most `us_len` bytes and the object at `us` is valid for `us_len` bytes"
                     ),
                     assure(
                         "the computed offset, in bytes, does not overflow an `isize`",
-                        reason = "no slice can be larger than `isize::MAX` bytes"
+                        reason = "`us_len <= `isize::MAX as usize`"
                     ),
                     assure(
                         "performing the offset does not result in overflow",
                         reason = "a single allocation does not rely on overflow to index all elements and `i as isize >= 0`"
                     )
                 )]
-                let ptr = ptr_us.offset(i as isize);
+                let ptr = us.offset(i as isize);
                 #[cfg_attr(
                     any(test, feature = "pre"),
                     forward(pre),
                     assure(
                         valid_ptr(src, r),
-                        reason = "`ptr` points to an offset within the slice, which is a valid pointer for reads"
+                        reason = "`ptr` is constructed from a valid pointer above with an offset that still fits the allocation"
                     ),
                     assure(
                         proper_align(src),
@@ -204,14 +211,11 @@ mod mem {
                     ),
                     assure(
                         "`src` points to a properly initialized value of type `T`",
-                        reason = "this is technically undefined behavior, because `T` may contain padding bytes,
-                        which are not guaranteed to be initialized.
-                        Without more information about `T`, it is pretty much impossible to avoid this though
-                        and it this has no UB for types without padding bytes."
+                        reason = "`ptr` points to the object as `us`, which contains initialized `u8` values"
                     ),
                     assure(
                         "`T` is `Copy` or the value at `*src` isn't used after this call",
-                        reason = "`T: Copy`"
+                        reason = "`u8: Copy`"
                     )
                 )]
                 std::ptr::read_volatile(ptr)
@@ -222,26 +226,24 @@ mod mem {
                     forward(impl pre::std::const_pointer),
                     assure(
                         "the starting and the resulting pointer are in bounds of the same allocated object",
-                        reason = "`ptr_them` points to the start of `them`, which is a single allocated object of size
-                        `size_of(us)` (because `us.len() == them.len()` and `i` is in `0..size_of(us)` and thus only
-                        moves the pointer within the allocated object"
+                        reason = "the offset is at most `them_len == us_len` bytes and the object at `them` is valid for `them_len` bytes"
                     ),
                     assure(
                         "the computed offset, in bytes, does not overflow an `isize`",
-                        reason = "no slice can be larger than `isize::MAX` bytes"
+                        reason = "`them_len == us_len <= `isize::MAX as usize`"
                     ),
                     assure(
                         "performing the offset does not result in overflow",
                         reason = "a single allocation does not rely on overflow to index all elements and `i as isize >= 0`"
                     )
                 )]
-                let ptr = ptr_them.offset(i as isize);
+                let ptr = them.offset(i as isize);
                 #[cfg_attr(
                     any(test, feature = "pre"),
                     forward(pre),
                     assure(
                         valid_ptr(src, r),
-                        reason = "`ptr` points to an offset within the slice, which is a valid pointer for reads"
+                        reason = "`ptr` is constructed from a valid pointer above with an offset that still fits the allocation"
                     ),
                     assure(
                         proper_align(src),
@@ -249,14 +251,11 @@ mod mem {
                     ),
                     assure(
                         "`src` points to a properly initialized value of type `T`",
-                        reason = "this is technically undefined behavior, because `T` may contain padding bytes,
-                        which are not guaranteed to be initialized.
-                        Without more information about `T`, it is pretty much impossible to avoid this though
-                        and it this has no UB for types without padding bytes."
+                        reason = "`ptr` points to the object as `them`, which contains initialized `u8` values"
                     ),
                     assure(
                         "`T` is `Copy` or the value at `*src` isn't used after this call",
-                        reason = "`T: Copy`"
+                        reason = "`u8: Copy`"
                     )
                 )]
                 std::ptr::read_volatile(ptr)
@@ -540,14 +539,38 @@ impl<T> PartialEq for SecVec<T> where T: Sized + Copy {
         #[cfg_attr(
             any(test, feature = "pre"),
             assure(
-                "`T` does not have any padding bytes",
-                reason = "this is technically undefined behavior, because `T` may contain padding bytes,
-                which are not guaranteed to be initialized.
-                Without more information about `T`, it is pretty much impossible to avoid this though
-                and this has no UB for types without padding bytes."
+                valid_ptr(us, r),
+                reason = "`us` is created from a reference"
+            ),
+            assure(
+                "`us` points to a single allocated object of initialized `u8` values that is valid for `us_len` bytes",
+                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+            ),
+            assure(
+                us_len <= isize::MAX as usize,
+                reason = "a slice is never larger than `isize::MAX` bytes"
+            ),
+            assure(
+                valid_ptr(them, r),
+                reason = "`them` is created from a reference"
+            ),
+            assure(
+                "`them` points to a single allocated object of initialized `u8` values that is valid for `them_len` bytes",
+                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+            ),
+            assure(
+                them_len <= isize::MAX as usize,
+                reason = "a slice is never larger than `isize::MAX` bytes"
             )
         )]
-        unsafe { mem::cmp(&self.content, &other.content) }
+        unsafe {
+            mem::cmp(
+                self.content.as_ptr() as *const u8,
+                self.content.len() * std::mem::size_of::<T>(),
+                other.content.as_ptr() as *const u8,
+                other.content.len() * std::mem::size_of::<T>()
+            )
+        }
     }
 }
 
@@ -739,14 +762,38 @@ impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
         #[cfg_attr(
             any(test, feature = "pre"),
             assure(
-                "`T` does not have any padding bytes",
-                reason = "this is technically undefined behavior, because `T` may contain padding bytes,
-                which are not guaranteed to be initialized.
-                Without more information about `T`, it is pretty much impossible to avoid this though
-                and this has no UB for types without padding bytes."
+                valid_ptr(us, r),
+                reason = "`us` is created from a reference"
+            ),
+            assure(
+                "`us` points to a single allocated object of initialized `u8` values that is valid for `us_len` bytes",
+                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+            ),
+            assure(
+                us_len <= isize::MAX as usize,
+                reason = "`mem::size_of::<T>()` is never larger than `isize::MAX` bytes"
+            ),
+            assure(
+                valid_ptr(them, r),
+                reason = "`them` is created from a reference"
+            ),
+            assure(
+                "`them` points to a single allocated object of initialized `u8` values that is valid for `them_len` bytes",
+                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+            ),
+            assure(
+                them_len <= isize::MAX as usize,
+                reason = "`mem::size_of::<T>()` is never larger than `isize::MAX` bytes"
             )
         )]
-        unsafe { mem::cmp(box_as_slice(self.content.as_ref().unwrap()), box_as_slice(other.content.as_ref().unwrap())) }
+        unsafe {
+            mem::cmp(
+                &**self.content.as_ref().unwrap() as *const T as *const u8,
+                std::mem::size_of::<T>(),
+                &**other.content.as_ref().unwrap() as *const T as *const u8,
+                std::mem::size_of::<T>()
+            )
+        }
     }
 }
 
