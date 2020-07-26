@@ -9,6 +9,7 @@ readme = "README.md"
 homepage = "https://github.com/myfreeweb/secstr"
 repository = "https://github.com/myfreeweb/secstr"
 documentation = "https://docs.rs/secstr/"
+edition = "2018"
 
 [lib]
 name = "secstr"
