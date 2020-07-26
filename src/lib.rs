@@ -371,7 +371,9 @@ impl SecUtf8 {
 
     #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     pub fn into_unsecure(mut self) -> String {
+        memlock::munlock(self.0.content.as_mut_ptr(), self.0.content.capacity());
         let content = std::mem::replace(&mut self.0.content, Vec::new());
+        std::mem::forget(self);
         #[cfg_attr(
             any(test, feature = "pre"),
             forward(impl pre::std::string::String),
