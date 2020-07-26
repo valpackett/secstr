@@ -46,7 +46,8 @@ let text_to_print = format!("{}", SecStr::from("hello")); // "***SECRET***"
 // (but you can force it)
 let mut my_sec = SecStr::from("hello");
 my_sec.zero_out();
-assert_eq!(my_sec.unsecure(), b"\x00\x00\x00\x00\x00");
+// (It also sets the length to 0)
+assert_eq!(my_sec.unsecure(), b"");
 ```
 
 Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.  
