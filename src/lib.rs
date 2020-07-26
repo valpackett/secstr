@@ -1,13 +1,8 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
-extern crate core; // Needed by pre
-#[cfg(any(test, feature = "pre"))]
-extern crate pre;
-#[cfg(feature = "serde")] extern crate serde;
 use std::fmt;
 use std::borrow::{Borrow, BorrowMut};
 #[cfg(feature = "serde")] use serde::ser::{Serialize, Serializer};
 #[cfg(feature = "serde")] use serde::de::{self, Deserialize, Deserializer, Visitor};
-#[cfg(all(test, feature = "serde"))] extern crate serde_cbor;
 
 
 /**
@@ -30,7 +25,7 @@ fn box_as_slice<T: Sized>(reference: &Box<T>) -> &[T] {
 mod mem {
     extern crate libsodium_sys as sodium;
     use std;
-    use ::size_of;
+    use crate::size_of;
 
     #[cfg_attr(
         any(test, feature = "pre"),
@@ -116,7 +111,7 @@ mod mem {
 mod mem {
     use std;
 
-    use ::size_of;
+    use crate::size_of;
 
     #[cfg_attr(
         any(test, feature = "pre"),
