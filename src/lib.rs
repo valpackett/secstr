@@ -307,6 +307,48 @@ mod memlock {
     }
 }
 
+mod private {
+    // Private trait to prevent users from implementing `NoPaddingBytes`
+    // This allows to change to a better implementation of `NoPaddingBytes` in the future,
+    // without worrying about breaking backwards compatibility for users who implemented the trait.
+    pub trait Sealed {}
+}
+/// Guarantees that there are no padding bytes in types implementing this trait.
+///
+/// # Safety
+/// Implementing this trait for a type which has padding bytes may result in undefined behavior.
+pub unsafe trait NoPaddingBytes: private::Sealed {}
+
+macro_rules! impl_no_padding_bytes {
+    ($($type:ty),*) => {
+        $(
+            impl private::Sealed for $type {}
+            unsafe impl NoPaddingBytes for $type {}
+        )*
+    };
+}
+
+impl_no_padding_bytes! {
+    u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, usize, isize,
+    char, f32, f64, ()
+}
+
+macro_rules! impl_no_paddding_bytes_array {
+    ($($len:literal),*) => {
+        $(
+            impl<T> private::Sealed for [T; $len] {}
+            unsafe impl<T> NoPaddingBytes for [T; $len] {}
+        )*
+    };
+}
+
+impl_no_paddding_bytes_array! {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+    21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+    31, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192
+}
+
 
 
 /// Type alias for a vector that stores just bytes
@@ -425,7 +467,7 @@ impl<'de> serde::Deserialize<'de> for SecUtf8 {
 ///
 /// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.
 /// Use `SecStr::new` if you have a `Vec<u8>`.
-#[derive(Clone, Eq)]
+#[derive(Clone)]
 pub struct SecVec<T> where T: Sized + Copy {
     content: Vec<T>
 }
@@ -530,7 +572,7 @@ impl<T> Drop for SecVec<T> where T: Sized + Copy {
 }
 
 // Constant time comparison
-impl<T> PartialEq for SecVec<T> where T: Sized + Copy {
+impl<T> PartialEq for SecVec<T> where T: Sized + Copy + NoPaddingBytes {
     #[cfg_attr(
         any(test, feature = "pre"),
         pre::pre
@@ -544,7 +586,9 @@ impl<T> PartialEq for SecVec<T> where T: Sized + Copy {
             ),
             assure(
                 "`us` points to a single allocated object of initialized `u8` values that is valid for `us_len` bytes",
-                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+                reason = "`T` has no padding bytes, because of the `NoPaddingBytes` bound and all other bytes are initialized,
+                because all elements in a vec are initialized. They also all belong to a single allocation big enough to hold
+                at least `vec.len()` elements of `T`."
             ),
             assure(
                 us_len <= isize::MAX as usize,
@@ -556,7 +600,9 @@ impl<T> PartialEq for SecVec<T> where T: Sized + Copy {
             ),
             assure(
                 "`them` points to a single allocated object of initialized `u8` values that is valid for `them_len` bytes",
-                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+                reason = "`T` has no padding bytes, because of the `NoPaddingBytes` bound and all other bytes are initialized,
+                because all elements in a vec are initialized. They also all belong to a single allocation big enough to hold
+                at least `vec.len()` elements of `T`."
             ),
             assure(
                 them_len <= isize::MAX as usize,
@@ -573,6 +619,8 @@ impl<T> PartialEq for SecVec<T> where T: Sized + Copy {
         }
     }
 }
+
+impl<T> Eq for SecVec<T> where T: Sized + Copy + NoPaddingBytes {}
 
 // Make sure sensitive information is not logged accidentally
 impl<T> fmt::Debug for SecVec<T> where T: Sized + Copy {
@@ -634,7 +682,7 @@ impl Serialize for SecVec<u8> {
 /// - Automatic `madvise(MADV_NOCORE/MADV_DONTDUMP)` to protect against leaking into core dumps (FreeBSD, DragonflyBSD, Linux)
 ///
 /// Comparisons using the `PartialEq` implementation are undefined behavior (and most likely wrong) if `T` has any padding bytes.
-#[derive(Clone, Eq)]
+#[derive(Clone)]
 pub struct SecBox<T> where T: Sized + Copy {
     // This is an `Option` to avoid UB in the destructor, outside the destructor, it is always
     // `Some(_)`
@@ -753,7 +801,7 @@ impl<T> Drop for SecBox<T> where T: Sized + Copy {
 }
 
 // Constant time comparison
-impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
+impl<T> PartialEq for SecBox<T> where T: Sized + Copy + NoPaddingBytes {
     #[cfg_attr(
         any(test, feature = "pre"),
         pre::pre
@@ -767,7 +815,9 @@ impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
             ),
             assure(
                 "`us` points to a single allocated object of initialized `u8` values that is valid for `us_len` bytes",
-                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+                reason = "`T` has no padding bytes, because of the `NoPaddingBytes` bound and all other bytes are initialized,
+                because all elements in a vec are initialized. They also all belong to a single allocation big enough to hold
+                at least `vec.len()` elements of `T`."
             ),
             assure(
                 us_len <= isize::MAX as usize,
@@ -779,7 +829,9 @@ impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
             ),
             assure(
                 "`them` points to a single allocated object of initialized `u8` values that is valid for `them_len` bytes",
-                reason = "this is UB for cases where `T` has padding bytes, but it's fine when it doesn't"
+                reason = "`T` has no padding bytes, because of the `NoPaddingBytes` bound and all other bytes are initialized,
+                because all elements in a vec are initialized. They also all belong to a single allocation big enough to hold
+                at least `vec.len()` elements of `T`."
             ),
             assure(
                 them_len <= isize::MAX as usize,
@@ -796,6 +848,8 @@ impl<T> PartialEq for SecBox<T> where T: Sized + Copy {
         }
     }
 }
+
+impl<T> Eq for SecBox<T> where T: Sized + Copy + NoPaddingBytes {}
 
 // Make sure sensitive information is not logged accidentally
 impl<T> fmt::Debug for SecBox<T> where T: Sized + Copy {
