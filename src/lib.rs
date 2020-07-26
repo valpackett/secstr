@@ -1,10 +1,13 @@
 //! A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out.
 #[cfg(feature = "serde")]
-use serde::de::{self, Deserialize, Deserializer, Visitor};
-#[cfg(feature = "serde")]
-use serde::ser::{Serialize, Serializer};
-use std::borrow::{Borrow, BorrowMut};
-use std::fmt;
+use serde::{
+    de::{self, Deserialize, Deserializer, Visitor},
+    ser::{Serialize, Serializer},
+};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    fmt,
+};
 
 /**
  * Obtain the number of bytes stored in the given byte slice
