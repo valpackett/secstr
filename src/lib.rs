@@ -354,6 +354,7 @@ pub type SecStr = SecVec<u8>;
 pub struct SecUtf8(SecVec<u8>);
 
 impl SecUtf8 {
+    /// Borrow the contents of the string.
     #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     pub fn unsecure(&self) -> &str {
         #[cfg_attr(
@@ -362,8 +363,8 @@ impl SecUtf8 {
             assure(
                 "the content of `v` is valid UTF-8",
                 reason = "it is not possible to create a `SecUtf8` with invalid UTF-8 content
-                and it is also not possible to modify the content directly, so they must still
-                be valid UTF-8 here"
+                and it is also not possible to modify the content as non-UTF-8 directly, so
+                they must still be valid UTF-8 here"
             )
         )]
         unsafe {
@@ -371,6 +372,25 @@ impl SecUtf8 {
         }
     }
 
+    /// Mutably borrow the contents of the string.
+    #[cfg_attr(any(test, feature = "pre"), pre::pre)]
+    pub fn unsecure_mut(&mut self) -> &mut str {
+        #[cfg_attr(
+            any(test, feature = "pre"),
+            forward(pre),
+            assure(
+                "the content of `v` is valid UTF-8",
+                reason = "it is not possible to create a `SecUtf8` with invalid UTF-8 content
+                and it is also not possible to modify the content as non-UTF-8 directly, so
+                they must still be valid UTF-8 here"
+            )
+        )]
+        unsafe {
+            std::str::from_utf8_unchecked_mut(self.0.unsecure_mut())
+        }
+    }
+
+    /// Turn the string into a regular `String` again.
     #[cfg_attr(any(test, feature = "pre"), pre::pre)]
     pub fn into_unsecure(mut self) -> String {
         memlock::munlock(self.0.content.as_mut_ptr(), self.0.content.capacity());
@@ -382,8 +402,8 @@ impl SecUtf8 {
             assure(
                 "the content of `bytes` is valid UTF-8",
                 reason = "it is not possible to create a `SecUtf8` with invalid UTF-8 content
-                and it is also not possible to modify the content directly, so they must still
-                be valid UTF-8 here"
+                and it is also not possible to modify the content as non-UTF-8 directly, so
+                they must still be valid UTF-8 here"
             )
         )]
         unsafe {
