@@ -313,8 +313,7 @@ mod private {
 }
 /// Guarantees that there are no padding bytes in types implementing this trait.
 ///
-/// # Safety
-/// Implementing this trait for a type which has padding bytes may result in undefined behavior.
+/// This trait is sealed and cannot be implemented outside of this crate.
 pub unsafe trait NoPaddingBytes: private::Sealed {}
 
 macro_rules! impl_no_padding_bytes {
