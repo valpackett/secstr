@@ -512,6 +512,32 @@ where
         self.borrow_mut()
     }
 
+    /// Resizes the `SecVec` in-place so that len is equal to `new_len`.
+    ///
+    /// If `new_len` is smaller the inner vector is truncated.
+    /// If `new_len` is larger the inner vector will grow, placing `value` in all new cells.
+    ///
+    /// This ensures that the new memory region is secured if reallocation occurs.
+    ///
+    /// Similar to [`Vec::resize`](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.resize)
+    pub fn resize(&mut self, new_len: usize, value: T) {
+        // Trucnate if shorter or same length
+        if new_len <= self.content.len() {
+            self.content.truncate(new_len);
+            return;
+        }
+
+        // Allocate new vector, copy old data into it
+        let mut new_vec = vec![value; new_len];
+        memlock::mlock(new_vec.as_mut_ptr(), new_vec.capacity());
+        new_vec[0..self.content.len()].copy_from_slice(&self.content);
+
+        // Securely clear old vector, replace with new vector
+        self.zero_out();
+        memlock::munlock(self.content.as_mut_ptr(), self.content.capacity());
+        self.content = new_vec;
+    }
+
     /// Overwrite the string with zeros. This is automatically called in the destructor.
     ///
     /// This also sets the length to `0`.
