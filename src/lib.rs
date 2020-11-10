@@ -1027,6 +1027,16 @@ mod tests {
     }
 
     #[test]
+    fn test_resize() {
+        let mut my_sec = SecVec::from([0, 1]);
+        assert_eq!(my_sec.unsecure().len(), 2);
+        my_sec.resize(1, 0);
+        assert_eq!(my_sec.unsecure().len(), 1);
+        my_sec.resize(16, 2);
+        assert_eq!(my_sec.unsecure(), &[0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
+    }
+
+    #[test]
     fn test_comparison() {
         assert_eq!(SecStr::from("hello"), SecStr::from("hello"));
         assert!(SecStr::from("hello") != SecStr::from("yolo"));
