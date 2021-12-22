@@ -7,6 +7,7 @@ use serde::{
 use std::{
     borrow::{Borrow, BorrowMut},
     fmt,
+    str::FromStr,
 };
 
 /**
@@ -112,10 +113,7 @@ mod mem {
 
         let mut hash2 = [0u8; sodium::crypto_hash_BYTES as _];
         unsafe {
-            assert_eq!(
-                sodium::crypto_hash(&mut hash2[0] as *mut _, round2.as_ptr(), round2.len() as u64),
-                0
-            );
+            assert_eq!(sodium::crypto_hash(&mut hash2[0] as *mut _, round2.as_ptr(), round2.len() as u64), 0);
         };
 
         // Use this final value as state
@@ -440,6 +438,14 @@ where
     }
 }
 
+impl FromStr for SecUtf8 {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(SecUtf8(SecVec::new(s.into())))
+    }
+}
+
 #[cfg(feature = "serde")]
 impl serde::Serialize for SecUtf8 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -593,6 +599,14 @@ where
 {
     fn from(s: U) -> SecVec<T> {
         SecVec::new(s.into())
+    }
+}
+
+impl FromStr for SecVec<u8> {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(SecVec::new(s.into()))
     }
 }
 
@@ -825,10 +839,7 @@ where
             reason = "`mem::size_of::<T>()` cannot return a value larger than `isize::MAX`"
         )
     )]
-    mem::zero(
-        &mut **secbox.content.as_mut().unwrap() as *mut T as *mut u8,
-        std::mem::size_of::<T>(),
-    );
+    mem::zero(&mut **secbox.content.as_mut().unwrap() as *mut T as *mut u8, std::mem::size_of::<T>());
 }
 
 // Delegate indexing

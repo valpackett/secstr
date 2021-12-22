@@ -1,8 +1,8 @@
 [package]
 name = "secstr"
 version = "0.4.0"
-authors = [ "Greg V <greg@unrelenting.technology>" ]
-keywords = [ "Security", "Memory" ]
+authors = ["Greg V <greg@unrelenting.technology>"]
+keywords = ["Security", "Memory"]
 description = "A data type suitable for storing sensitive information such as passwords and private keys in memory, featuring constant time equality, mlock and zeroing out."
 license = "Unlicense"
 readme = "README.md"
