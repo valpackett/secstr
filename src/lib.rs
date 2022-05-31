@@ -491,7 +491,6 @@ impl<'de> serde::Deserialize<'de> for SecUtf8 {
 ///
 /// Be careful with `SecStr::from`: if you have a borrowed string, it will be copied.
 /// Use `SecStr::new` if you have a `Vec<u8>`.
-#[derive(Clone)]
 pub struct SecVec<T>
 where
     T: Sized + Copy,
@@ -588,6 +587,12 @@ where
         unsafe {
             mem::zero(self.content.as_mut_ptr() as *mut u8, num_bytes)
         };
+    }
+}
+
+impl<T: Copy> Clone for SecVec<T> {
+    fn clone(&self) -> Self {
+        Self::new(self.content.clone())
     }
 }
 
@@ -784,7 +789,6 @@ impl Serialize for SecVec<u8> {
 /// - Automatic `madvise(MADV_NOCORE/MADV_DONTDUMP)` to protect against leaking into core dumps (FreeBSD, DragonflyBSD, Linux)
 ///
 /// Comparisons using the `PartialEq` implementation are undefined behavior (and most likely wrong) if `T` has any padding bytes.
-#[derive(Clone)]
 pub struct SecBox<T>
 where
     T: Sized + Copy,
@@ -811,6 +815,12 @@ where
     /// Mutably borrow the contents of the string.
     pub fn unsecure_mut(&mut self) -> &mut T {
         self.content.as_mut().unwrap()
+    }
+}
+
+impl<T: Copy> Clone for SecBox<T> {
+    fn clone(&self) -> Self {
+        Self::new(self.content.clone().unwrap())
     }
 }
 
