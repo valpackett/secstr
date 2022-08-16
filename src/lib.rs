@@ -328,21 +328,8 @@ impl_no_padding_bytes! {
     char, f32, f64, ()
 }
 
-macro_rules! impl_no_paddding_bytes_array {
-    ($($len:literal),*) => {
-        $(
-            impl<T> private::Sealed for [T; $len] {}
-            unsafe impl<T> NoPaddingBytes for [T; $len] {}
-        )*
-    };
-}
-
-impl_no_paddding_bytes_array! {
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-    21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-    31, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192
-}
+impl<T: NoPaddingBytes, const N: usize> private::Sealed for [T; N] {}
+unsafe impl<T: NoPaddingBytes, const N: usize> NoPaddingBytes for [T; N] {}
 
 /// Type alias for a vector that stores just bytes
 pub type SecStr = SecVec<u8>;
