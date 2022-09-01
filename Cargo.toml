@@ -16,7 +16,7 @@ name = "secstr"
 
 [dependencies]
 libc = "0.2"
-libsodium-sys = { version = "0", optional = true }
+libsodium-sys = { version = "0.2", optional = true }
 pre = { version = "=0.2", optional = true }
 serde = { version = "1.0", optional = true }
 
